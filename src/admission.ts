@@ -26,6 +26,10 @@ import {
   normalizeClubProfileFields,
 } from './identity/profiles.ts';
 import {
+  assertCanApplyToClub,
+  writeApplicantBlock,
+} from './application-policy.ts';
+import {
   createMembershipInTransaction,
   reactivateCancelledMembershipInTransaction,
   resolveNotificationClubRef,
@@ -364,21 +368,6 @@ async function assertApplicationCapacity(client: DbClient, memberId: string): Pr
   }
 }
 
-async function assertNoClubBlock(client: DbClient, clubId: string, memberId: string): Promise<void> {
-  const result = await client.query<{ block_kind: 'banned' | 'removed' }>(
-    `select block_kind
-     from club_applicant_blocks
-     where club_id = $1
-       and member_id = $2
-     order by created_at desc
-     limit 1`,
-    [clubId, memberId],
-  );
-  const block = result.rows[0];
-  if (!block) return;
-  throw new AppError('application_blocked', `You cannot apply to this club after being ${block.block_kind}.`);
-}
-
 async function readExistingMembership(client: DbClient, clubId: string, memberId: string): Promise<ExistingMembershipRow | null> {
   const membership = await client.query<ExistingMembershipRow>(
     `select id as membership_id
@@ -395,28 +384,6 @@ async function readExistingMembership(client: DbClient, clubId: string, memberId
     [clubId, memberId],
   );
   return membership.rows[0] ?? null;
-}
-
-function buildMembershipConflictDetails(membership: ExistingMembershipRow): Record<string, unknown> {
-  return {
-    membership: {
-      membershipId: membership.membership_id,
-      clubId: membership.club_id,
-      memberId: membership.member_id,
-      role: membership.role,
-      status: membership.status,
-      joinedAt: membership.joined_at,
-    },
-  };
-}
-
-function assertMembershipAllowsApplication(membership: ExistingMembershipRow | null): void {
-  if (!membership || membership.status === 'cancelled') {
-    return;
-  }
-  throw new AppError('member_already_active', 'This member already has an active membership in the club.', {
-    details: buildMembershipConflictDetails(membership),
-  });
 }
 
 function mapCandidateInvitationChoice(row: InternalInvitationBindingRow): Record<string, unknown> {
@@ -774,8 +741,10 @@ async function runApplicationPreflight(pool: Pool, input: {
   clubId: string;
 }): Promise<void> {
   return withTransaction(pool, async (client) => {
-    const membership = await readExistingMembership(client, input.clubId, input.actorMemberId);
-    assertMembershipAllowsApplication(membership);
+    await assertCanApplyToClub(client, {
+      clubId: input.clubId,
+      memberId: input.actorMemberId,
+    });
 
     const existingOpen = await getExistingOpenApplicationIfAny(client, {
       clubId: input.clubId,
@@ -786,7 +755,6 @@ async function runApplicationPreflight(pool: Pool, input: {
     }
 
     await assertApplicationCapacity(client, input.actorMemberId);
-    await assertNoClubBlock(client, input.clubId, input.actorMemberId);
   });
 }
 
@@ -1822,8 +1790,10 @@ export async function applyToClub(pool: Pool, input: {
           throw new AppError('club_not_found', 'Club not found.');
         }
         assertPreparedClubStillCurrent(preparedClub, club);
-        const membership = await readExistingMembership(client, club.club_id, input.actorMemberId);
-        assertMembershipAllowsApplication(membership);
+        await assertCanApplyToClub(client, {
+          clubId: club.club_id,
+          memberId: input.actorMemberId,
+        });
 
         const existingOpen = await getExistingOpenApplicationIfAny(client, {
           clubId: club.club_id,
@@ -1836,7 +1806,6 @@ export async function applyToClub(pool: Pool, input: {
         }
 
         await assertApplicationCapacity(client, input.actorMemberId);
-        await assertNoClubBlock(client, club.club_id, input.actorMemberId);
         const invitationBinding = await resolveApplicationInvitationBinding(client, {
           clubId: club.club_id,
           applicantMemberId: input.actorMemberId,
@@ -1963,8 +1932,10 @@ export async function redeemInvitationApplication(pool: Pool, input: {
         }
         assertInvitationSponsorAvailable(invitation);
 
-        const membership = await readExistingMembership(client, invitation.club_id, input.actorMemberId);
-        assertMembershipAllowsApplication(membership);
+        await assertCanApplyToClub(client, {
+          clubId: invitation.club_id,
+          memberId: input.actorMemberId,
+        });
 
         const existingOpen = await getExistingOpenApplicationIfAny(client, {
           clubId: invitation.club_id,
@@ -1989,7 +1960,6 @@ export async function redeemInvitationApplication(pool: Pool, input: {
           owner_name: invitation.sponsor_public_name,
         };
         await assertApplicationCapacity(client, input.actorMemberId);
-        await assertNoClubBlock(client, invitation.club_id, input.actorMemberId);
         await client.query(
           `update invite_requests
            set used_at = now()
@@ -2542,12 +2512,27 @@ export async function decideClubApplication(pool: Pool, input: {
         );
 
         if (input.decision === 'ban') {
-          await client.query(
-            `insert into club_applicant_blocks (club_id, member_id, block_kind, created_by_member_id, reason)
-             values ($1, $2, 'banned', $3, $4)
-             on conflict (club_id, member_id, block_kind) do nothing`,
-            [row.club_id, row.applicant_member_id, input.actorMemberId, input.adminNote ?? 'application_ban'],
-          );
+          await writeApplicantBlock(client, {
+            clubId: row.club_id,
+            memberId: row.applicant_member_id,
+            blockKind: 'banned',
+            source: 'application_decision',
+            creatorMemberId: input.actorMemberId,
+            reason: input.adminNote ?? 'application_ban',
+          });
+        } else {
+          const postDeclineDays = getConfig().policy.applicationBlocks.postDeclineDays;
+          if (postDeclineDays > 0) {
+            await writeApplicantBlock(client, {
+              clubId: row.club_id,
+              memberId: row.applicant_member_id,
+              blockKind: 'declined',
+              source: 'application_decision',
+              expiresInDays: postDeclineDays,
+              creatorMemberId: input.actorMemberId,
+              reason: input.adminNote ?? 'application_decline',
+            });
+          }
         }
 
         const updated = await readApplicationRow(client, row.application_id);

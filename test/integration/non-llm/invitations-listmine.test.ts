@@ -184,6 +184,48 @@ describe('invitations.list', () => {
     assert.equal(conflictInvitation.code, successInvitation.code);
   });
 
+  it('enforces one open sponsor invitation per normalized candidate email across target modes', async () => {
+    const sponsor = await h.seedOwner('invite-unified-candidate-index', 'Invite Unified Candidate Index');
+    const candidate = await h.seedMember('Unified Invite Candidate', 'unified-invite-candidate@example.com');
+    await h.sql(
+      `insert into invite_requests (
+         club_id,
+         sponsor_member_id,
+         candidate_name,
+         candidate_email,
+         reason,
+         delivery_kind,
+         target_source,
+         expires_at
+       )
+       values ($1, $2, 'Unified Invite Candidate', 'UNIFIED-INVITE-CANDIDATE@example.com', 'Seed external invite.', 'code', 'email', now() + interval '30 days')`,
+      [sponsor.club.id, sponsor.id],
+    );
+
+    await assert.rejects(
+      () => h.sql(
+        `insert into invite_requests (
+           club_id,
+           sponsor_member_id,
+           candidate_name,
+           candidate_email,
+           candidate_member_id,
+           reason,
+           delivery_kind,
+           target_source,
+           expires_at
+         )
+         values ($1, $2, 'Unified Invite Candidate', 'unified-invite-candidate@example.com', $3, 'Seed in-app invite.', 'notification', 'member_id', now() + interval '30 days')`,
+        [sponsor.club.id, sponsor.id, candidate.id],
+      ),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, '23505');
+        assert.equal((error as { constraint?: string }).constraint, 'invite_requests_open_per_sponsor_candidate_idx');
+        return true;
+      },
+    );
+  });
+
   it('returns quotaState that matches live sponsor-slot occupancy', async () => {
     const sponsor = await h.seedOwner('invite-quota-club', 'Invite Quota Club');
 
@@ -436,6 +478,32 @@ describe('invitations.issue existing-member delivery', () => {
       false,
       'applying through an in-app invite should only create an application; admission still requires admin acceptance',
     );
+  });
+
+  it('rejects inviting a member with an active applicant block', async () => {
+    const sponsor = await h.seedOwner('invite-blocked-target-club', 'Invite Blocked Target Club');
+    const candidate = await h.seedMember('Invite Blocked Candidate', 'invite-blocked-candidate@example.com');
+    await h.sql(
+      `insert into club_applicant_blocks (
+         club_id,
+         member_id,
+         block_kind,
+         expires_at,
+         source,
+         reason
+       )
+       values ($1, $2, 'declined', now() + interval '7 days', 'test_active', 'Active invitation block')`,
+      [sponsor.club.id, candidate.id],
+    );
+
+    const err = await h.apiErr(sponsor.token, 'invitations.issue', {
+      clubId: sponsor.club.id,
+      candidateMemberId: candidate.id,
+      reason: 'I know this member well, but the active application policy block should prevent this invitation.',
+      clientKey: 'invite-blocked-target-1',
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'application_blocked');
   });
 
   it('delivers the same in-app notification when an email invite targets an existing registered member', async () => {

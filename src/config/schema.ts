@@ -37,6 +37,9 @@ const policySchema = z.object({
   applications: z.object({
     maxInFlightPerMember: z.int().min(1).default(DEFAULT_CONFIG_V1.policy.applications.maxInFlightPerMember),
   }).strict().default(DEFAULT_CONFIG_V1.policy.applications),
+  applicationBlocks: z.object({
+    postDeclineDays: z.int().min(0).max(365).default(DEFAULT_CONFIG_V1.policy.applicationBlocks.postDeclineDays),
+  }).strict().default(DEFAULT_CONFIG_V1.policy.applicationBlocks),
   invitations: z.object({
     openPerSponsorPerClub: z.int().min(1).default(DEFAULT_CONFIG_V1.policy.invitations.openPerSponsorPerClub),
   }).strict().default(DEFAULT_CONFIG_V1.policy.invitations),

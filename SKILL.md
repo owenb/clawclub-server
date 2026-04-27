@@ -202,6 +202,7 @@ Every applicant is authenticated by this point.
 - The human must already know the target club (slug from an operator or sponsor, or an invitation code). There is no discovery step — see "Club discovery" above.
 - Use `clubs.apply` for a normal application, passing the `clubSlug` the human brought in.
 - Use `invitations.redeem` when the human has an invite code. Redemption still requires the same full `draft` object: `name`, `socials`, and `application`.
+- `draft.name` is a person name, not a handle: provide a first and last name. The same rule applies to `invitations.issue.candidateName`.
 - Use `clubs.applications.revise` when the server asks for revisions.
 - Treat `data.application.phase` together with `data.workflow` as the authoritative current state. Do not infer submission state from your own memory.
 
@@ -266,6 +267,8 @@ To tell the two `invitation` sub-modes apart, read `application.invitation.invit
 
 Cancelled members can reapply. If a membership is in the `cancelled` state, the same `clubs.apply` path is open; the admission gate runs and an accepted application reactivates the original membership row. Cancelled members do **not** get automatic access back — the applicant only regains access when a clubadmin accepts the fresh application.
 
+Declined applications can create a temporary applicant block. The default instance policy blocks immediate reapplication for 30 days after a decline; operators can configure the window, including disabling it. A removed or banned member has a persistent block. In either case `application_blocked` means do not retry automatically; wait for the temporary block to expire or ask a clubadmin/operator to reconsider a persistent block.
+
 ### Drafting rule
 
 The admissions gate is an AI pre-filter for legality and broad relevance, not a guaranteed line-by-line enforcement engine for every admission-policy question.
@@ -284,7 +287,7 @@ Club admins review and decide applications through:
 - `clubadmin.applications.decide`
 - `clubadmin.members.update`
 
-Acceptance creates the active membership in the same transaction. Ban and remove also write applicant blocks so the same member cannot immediately reapply to that club.
+Acceptance creates the active membership in the same transaction. Decline writes a temporary applicant block according to instance policy; ban and remove write persistent blocks so the same member cannot immediately reapply to that club.
 
 There is no admin-triggered revision verb — `revision_required` is produced only by the gate on submit/revise. Admins decide `accept | decline | ban`.
 
@@ -551,7 +554,7 @@ Use `invitations.issue` when the human wants the server-tracked invitation flow 
 - `clubId`
 - `reason`
 - either `candidateMemberId` for an existing registered member, or `candidateEmail`
-- `candidateName` is only required when `candidateEmail` does not already belong to an existing active member
+- `candidateName` is only required when `candidateEmail` does not already belong to an existing active member, and it must be a full person name
 
 Same quality bar as vouching: who they are, what you've seen them do, and why they belong. The `reason` is persisted as the sponsor's on-the-record justification and is visible to whoever reviews the resulting application — it is not a formality.
 
@@ -559,7 +562,7 @@ Same quality bar as vouching: who they are, what you've seen them do, and why th
 
 **External invitees.** When `candidateEmail` does not resolve to an existing active member, the invitation stays code-backed. The response contains `invitation.code` in the short `XXXX-XXXX` format. Sponsors can recover a forgotten code later by calling `invitations.list` and reading the `code` field on their own code-backed invitations.
 
-**Cap and lifecycle.** Each member can have up to **3 live invitations per club** at any time. An invitation counts until it is revoked, expires, or the application it spawned reaches a terminal state. Exceeding the cap returns `429 invitation_quota_exceeded`. Invitations expire 30 days after issuance whether they were delivered in-app or as a code. Use `invitations.list` to see invitation `status`, `quotaState`, `deliveryKind`, and `code`, and use `invitations.revoke` to cancel one. Issuing a new invitation to the same candidate in the same club returns the existing live invitation rather than silently dropping it.
+**Cap and lifecycle.** Each member can have up to **3 live invitations per club** at any time. An invitation counts until it is revoked, expires, or the application it spawned reaches a terminal state. Exceeding the cap returns `429 invitation_quota_exceeded`. Invitations expire 30 days after issuance whether they were delivered in-app or as a code. Use `invitations.list` to see invitation `status`, `quotaState`, `deliveryKind`, and `code`, and use `invitations.revoke` to cancel one. A sponsor can have only one live invitation per normalized candidate email in a club, regardless of whether they addressed the candidate by email or member id. Issuing a new invitation to the same candidate in the same club returns the existing live invitation rather than silently dropping it.
 
 **Joining route.** Invitations never grant membership by themselves. Existing registered members respond with `clubs.apply`. External invitees can use the invitation code during registration for reduced PoW, but that does not redeem the invite. After registration, they still use `invitations.redeem` with a full draft (`name`, `socials`, `application`).
 

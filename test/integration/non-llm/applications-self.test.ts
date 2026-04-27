@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
 import { activeMemberships } from '../helpers.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
+import { DEFAULT_CONFIG_V1 } from '../../../src/config/index.ts';
 
 let h: TestHarness;
 
@@ -582,6 +583,139 @@ describe('clubs.apply', () => {
         ),
       );
     });
+  });
+
+  it('blocks a fresh application while a temporary decline block is active', async () => {
+    const owner = await h.seedOwner('applications-decline-block-club', 'Applications Decline Block Club');
+    const applicant = await h.seedMember('Decline Block Applicant');
+    const application = await h.seedApplication(owner.club.id, applicant.id, {
+      phase: 'awaiting_review',
+      draftName: 'Decline Block Applicant',
+      draftSocials: '@declineblock',
+      draftApplication: 'Please review and decline this application.',
+    });
+
+    await h.apiOk(owner.token, 'clubadmin.applications.decide', {
+      clubId: owner.club.id,
+      applicationId: application.id,
+      decision: 'decline',
+      adminNote: 'Try again later after more context.',
+      clientKey: 'applications-decline-block-decide-1',
+    });
+
+    const [block] = await h.sql<{
+      block_kind: string;
+      expires_at: string | null;
+      source: string | null;
+      reason: string | null;
+    }>(
+      `select block_kind::text as block_kind,
+              expires_at::text as expires_at,
+              source,
+              reason
+         from club_applicant_blocks
+        where club_id = $1
+          and member_id = $2`,
+      [owner.club.id, applicant.id],
+    );
+    assert.equal(block?.block_kind, 'declined');
+    assert.ok(block?.expires_at, 'decline blocks should be temporary by default');
+    assert.equal(block?.source, 'application_decision');
+    assert.equal(block?.reason, 'Try again later after more context.');
+
+    const err = await h.apiErr(applicant.token, 'clubs.apply', {
+      clubSlug: owner.club.slug,
+      draft: {
+        name: 'Decline Block Applicant',
+        socials: '@declineblock',
+        application: 'Immediate reapply should be blocked by the temporary policy row.',
+      },
+      clientKey: 'applications-decline-block-apply-1',
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'application_blocked');
+  });
+
+  it('ignores expired temporary decline blocks', async () => {
+    const owner = await h.seedOwner('applications-expired-decline-block', 'Applications Expired Decline Block');
+    const applicant = await h.seedMember('Expired Decline Applicant');
+    await h.sql(
+      `insert into club_applicant_blocks (
+         club_id,
+         member_id,
+         block_kind,
+         expires_at,
+         source,
+         reason
+       )
+       values ($1, $2, 'declined', now() - interval '1 day', 'test_expired', 'Expired test block')`,
+      [owner.club.id, applicant.id],
+    );
+
+    const applied = await h.apiOk(applicant.token, 'clubs.apply', {
+      clubSlug: owner.club.slug,
+      draft: {
+        name: 'Expired Decline Applicant',
+        socials: '@expireddecline',
+        application: 'The old temporary decline block has expired, so this can enter review.',
+      },
+      clientKey: 'applications-expired-decline-block-apply-1',
+    });
+    const application = (applied.data as Record<string, unknown>).application as Record<string, unknown>;
+    assert.equal(application.phase, 'awaiting_review');
+  });
+
+  it('does not write decline blocks when the instance config disables them', async () => {
+    const local = await TestHarness.start({
+      llmGate: passthroughGate,
+      config: {
+        ...DEFAULT_CONFIG_V1,
+        policy: {
+          ...DEFAULT_CONFIG_V1.policy,
+          applicationBlocks: { postDeclineDays: 0 },
+        },
+      },
+    });
+    try {
+      const owner = await local.seedOwner('applications-decline-block-disabled', 'Applications Decline Block Disabled');
+      const applicant = await local.seedMember('Decline Block Disabled Applicant');
+      const application = await local.seedApplication(owner.club.id, applicant.id, {
+        phase: 'awaiting_review',
+        draftName: 'Decline Block Disabled Applicant',
+        draftSocials: '@declineblockdisabled',
+        draftApplication: 'Please decline this while decline blocks are disabled.',
+      });
+
+      await local.apiOk(owner.token, 'clubadmin.applications.decide', {
+        clubId: owner.club.id,
+        applicationId: application.id,
+        decision: 'decline',
+        clientKey: 'applications-decline-block-disabled-decide-1',
+      });
+
+      const [count] = await local.sql<{ count: number }>(
+        `select count(*)::int as count
+           from club_applicant_blocks
+          where club_id = $1
+            and member_id = $2`,
+        [owner.club.id, applicant.id],
+      );
+      assert.equal(count?.count, 0);
+
+      const reapplied = await local.apiOk(applicant.token, 'clubs.apply', {
+        clubSlug: owner.club.slug,
+        draft: {
+          name: 'Decline Block Disabled Applicant',
+          socials: '@declineblockdisabled',
+          application: 'The instance has disabled post-decline blocks, so this fresh application can enter review.',
+        },
+        clientKey: 'applications-decline-block-disabled-apply-1',
+      });
+      const reappliedApplication = (reapplied.data as Record<string, unknown>).application as Record<string, unknown>;
+      assert.equal(reappliedApplication.phase, 'awaiting_review');
+    } finally {
+      await local.stop();
+    }
   });
 
   it('returns member_already_active with membership details for active members', async () => {

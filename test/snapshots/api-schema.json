@@ -918,207 +918,396 @@
         "additionalProperties": false,
         "properties": {
           "application": {
-            "additionalProperties": false,
-            "properties": {
-              "activatedMembershipId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "admin": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "note": {
+                  "activatedMembershipId": {
                     "nullable": true,
                     "type": "string"
                   },
-                  "workflowStage": {
-                    "nullable": true,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "note",
-                  "workflowStage"
-                ],
-                "type": "object"
-              },
-              "admissionPolicy": {
-                "nullable": true,
-                "type": "string"
-              },
-              "applicantMemberId": {
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
-              "clubSlug": {
-                "type": "string"
-              },
-              "clubSummary": {
-                "nullable": true,
-                "type": "string"
-              },
-              "decidedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "draft": {
-                "additionalProperties": false,
-                "properties": {
-                  "application": {
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "socials": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "name",
-                  "socials",
-                  "application"
-                ],
-                "type": "object"
-              },
-              "gate": {
-                "additionalProperties": false,
-                "properties": {
-                  "feedback": {
+                  "admin": {
                     "additionalProperties": false,
-                    "nullable": true,
                     "properties": {
-                      "message": {
+                      "note": {
                         "nullable": true,
                         "type": "string"
                       },
-                      "missingItems": {
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
+                      "workflowStage": {
+                        "nullable": true,
+                        "type": "string"
                       }
                     },
                     "required": [
-                      "message",
-                      "missingItems"
+                      "note",
+                      "workflowStage"
                     ],
                     "type": "object"
                   },
-                  "lastRunAt": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicantMemberId": {
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
                     "clawclubType": "timestamp",
                     "nullable": true,
                     "type": "string"
                   },
-                  "verdict": {
-                    "enum": [
-                      "passed",
-                      "needs_revision",
-                      "not_run",
-                      "unavailable"
+                  "draft": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "application": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "socials": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "socials",
+                      "application"
                     ],
+                    "type": "object"
+                  },
+                  "gate": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "feedback": {
+                        "additionalProperties": false,
+                        "nullable": true,
+                        "properties": {
+                          "message": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "missingItems": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "missingItems"
+                        ],
+                        "type": "object"
+                      },
+                      "lastRunAt": {
+                        "clawclubType": "timestamp",
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "verdict": {
+                        "enum": [
+                          "passed",
+                          "needs_revision",
+                          "not_run",
+                          "unavailable"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "verdict",
+                      "feedback",
+                      "lastRunAt"
+                    ],
+                    "type": "object"
+                  },
+                  "invitation": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorId": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "cold"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "verdict",
-                  "feedback",
-                  "lastRunAt"
-                ],
-                "type": "object"
-              },
-              "invitation": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "invitationId": {
-                    "type": "string"
-                  },
-                  "inviteMode": {
-                    "enum": [
-                      "internal",
-                      "external"
-                    ],
-                    "type": "string"
-                  },
-                  "inviteReasonSnapshot": {
-                    "type": "string"
-                  },
-                  "sponsorshipStillOpen": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "invitationId",
-                  "inviteMode",
-                  "inviteReasonSnapshot",
-                  "sponsorshipStillOpen"
-                ],
-                "type": "object"
-              },
-              "phase": {
-                "enum": [
-                  "revision_required",
-                  "awaiting_review",
-                  "active",
-                  "declined",
-                  "banned",
-                  "removed",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "sponsorId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "sponsorName": {
-                "nullable": true,
-                "type": "string"
-              },
-              "submissionPath": {
-                "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                "enum": [
-                  "cold",
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "applicantMemberId",
+                  "phase",
+                  "draft",
+                  "gate",
+                  "admin",
+                  "submittedAt",
+                  "decidedAt",
+                  "activatedMembershipId",
+                  "submissionPath",
+                  "sponsorId",
+                  "sponsorName",
                   "invitation"
                 ],
-                "type": "string"
+                "type": "object"
               },
-              "submittedAt": {
-                "clawclubType": "timestamp",
-                "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
-                "type": "string"
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "activatedMembershipId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "admin": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "workflowStage": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "note",
+                      "workflowStage"
+                    ],
+                    "type": "object"
+                  },
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicantMemberId": {
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "draft": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "application": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "socials": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "socials",
+                      "application"
+                    ],
+                    "type": "object"
+                  },
+                  "gate": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "feedback": {
+                        "additionalProperties": false,
+                        "nullable": true,
+                        "properties": {
+                          "message": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "missingItems": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "missingItems"
+                        ],
+                        "type": "object"
+                      },
+                      "lastRunAt": {
+                        "clawclubType": "timestamp",
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "verdict": {
+                        "enum": [
+                          "passed",
+                          "needs_revision",
+                          "not_run",
+                          "unavailable"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "verdict",
+                      "feedback",
+                      "lastRunAt"
+                    ],
+                    "type": "object"
+                  },
+                  "invitation": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "invitationId": {
+                        "type": "string"
+                      },
+                      "inviteMode": {
+                        "enum": [
+                          "internal",
+                          "external"
+                        ],
+                        "type": "string"
+                      },
+                      "inviteReasonSnapshot": {
+                        "type": "string"
+                      },
+                      "sponsorshipStillOpen": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "invitationId",
+                      "inviteMode",
+                      "inviteReasonSnapshot",
+                      "sponsorshipStillOpen"
+                    ],
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "invitation"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "applicantMemberId",
+                  "phase",
+                  "draft",
+                  "gate",
+                  "admin",
+                  "submittedAt",
+                  "decidedAt",
+                  "activatedMembershipId",
+                  "submissionPath",
+                  "sponsorId",
+                  "sponsorName",
+                  "invitation"
+                ],
+                "type": "object"
               }
-            },
-            "required": [
-              "applicationId",
-              "clubId",
-              "clubSlug",
-              "clubName",
-              "clubSummary",
-              "admissionPolicy",
-              "applicantMemberId",
-              "sponsorId",
-              "sponsorName",
-              "submissionPath",
-              "phase",
-              "draft",
-              "gate",
-              "admin",
-              "submittedAt",
-              "decidedAt",
-              "activatedMembershipId"
-            ],
-            "type": "object"
+            ]
           }
         },
         "required": [
@@ -1173,207 +1362,396 @@
         "additionalProperties": false,
         "properties": {
           "application": {
-            "additionalProperties": false,
-            "properties": {
-              "activatedMembershipId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "admin": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "note": {
+                  "activatedMembershipId": {
                     "nullable": true,
                     "type": "string"
                   },
-                  "workflowStage": {
-                    "nullable": true,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "note",
-                  "workflowStage"
-                ],
-                "type": "object"
-              },
-              "admissionPolicy": {
-                "nullable": true,
-                "type": "string"
-              },
-              "applicantMemberId": {
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
-              "clubSlug": {
-                "type": "string"
-              },
-              "clubSummary": {
-                "nullable": true,
-                "type": "string"
-              },
-              "decidedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "draft": {
-                "additionalProperties": false,
-                "properties": {
-                  "application": {
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "socials": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "name",
-                  "socials",
-                  "application"
-                ],
-                "type": "object"
-              },
-              "gate": {
-                "additionalProperties": false,
-                "properties": {
-                  "feedback": {
+                  "admin": {
                     "additionalProperties": false,
-                    "nullable": true,
                     "properties": {
-                      "message": {
+                      "note": {
                         "nullable": true,
                         "type": "string"
                       },
-                      "missingItems": {
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
+                      "workflowStage": {
+                        "nullable": true,
+                        "type": "string"
                       }
                     },
                     "required": [
-                      "message",
-                      "missingItems"
+                      "note",
+                      "workflowStage"
                     ],
                     "type": "object"
                   },
-                  "lastRunAt": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicantMemberId": {
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
                     "clawclubType": "timestamp",
                     "nullable": true,
                     "type": "string"
                   },
-                  "verdict": {
-                    "enum": [
-                      "passed",
-                      "needs_revision",
-                      "not_run",
-                      "unavailable"
+                  "draft": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "application": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "socials": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "socials",
+                      "application"
                     ],
+                    "type": "object"
+                  },
+                  "gate": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "feedback": {
+                        "additionalProperties": false,
+                        "nullable": true,
+                        "properties": {
+                          "message": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "missingItems": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "missingItems"
+                        ],
+                        "type": "object"
+                      },
+                      "lastRunAt": {
+                        "clawclubType": "timestamp",
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "verdict": {
+                        "enum": [
+                          "passed",
+                          "needs_revision",
+                          "not_run",
+                          "unavailable"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "verdict",
+                      "feedback",
+                      "lastRunAt"
+                    ],
+                    "type": "object"
+                  },
+                  "invitation": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorId": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "cold"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "verdict",
-                  "feedback",
-                  "lastRunAt"
-                ],
-                "type": "object"
-              },
-              "invitation": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "invitationId": {
-                    "type": "string"
-                  },
-                  "inviteMode": {
-                    "enum": [
-                      "internal",
-                      "external"
-                    ],
-                    "type": "string"
-                  },
-                  "inviteReasonSnapshot": {
-                    "type": "string"
-                  },
-                  "sponsorshipStillOpen": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "invitationId",
-                  "inviteMode",
-                  "inviteReasonSnapshot",
-                  "sponsorshipStillOpen"
-                ],
-                "type": "object"
-              },
-              "phase": {
-                "enum": [
-                  "revision_required",
-                  "awaiting_review",
-                  "active",
-                  "declined",
-                  "banned",
-                  "removed",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "sponsorId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "sponsorName": {
-                "nullable": true,
-                "type": "string"
-              },
-              "submissionPath": {
-                "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                "enum": [
-                  "cold",
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "applicantMemberId",
+                  "phase",
+                  "draft",
+                  "gate",
+                  "admin",
+                  "submittedAt",
+                  "decidedAt",
+                  "activatedMembershipId",
+                  "submissionPath",
+                  "sponsorId",
+                  "sponsorName",
                   "invitation"
                 ],
-                "type": "string"
+                "type": "object"
               },
-              "submittedAt": {
-                "clawclubType": "timestamp",
-                "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
-                "type": "string"
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "activatedMembershipId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "admin": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "note": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "workflowStage": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "note",
+                      "workflowStage"
+                    ],
+                    "type": "object"
+                  },
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicantMemberId": {
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "draft": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "application": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "socials": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "socials",
+                      "application"
+                    ],
+                    "type": "object"
+                  },
+                  "gate": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "feedback": {
+                        "additionalProperties": false,
+                        "nullable": true,
+                        "properties": {
+                          "message": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "missingItems": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "missingItems"
+                        ],
+                        "type": "object"
+                      },
+                      "lastRunAt": {
+                        "clawclubType": "timestamp",
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "verdict": {
+                        "enum": [
+                          "passed",
+                          "needs_revision",
+                          "not_run",
+                          "unavailable"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "verdict",
+                      "feedback",
+                      "lastRunAt"
+                    ],
+                    "type": "object"
+                  },
+                  "invitation": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "invitationId": {
+                        "type": "string"
+                      },
+                      "inviteMode": {
+                        "enum": [
+                          "internal",
+                          "external"
+                        ],
+                        "type": "string"
+                      },
+                      "inviteReasonSnapshot": {
+                        "type": "string"
+                      },
+                      "sponsorshipStillOpen": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "invitationId",
+                      "inviteMode",
+                      "inviteReasonSnapshot",
+                      "sponsorshipStillOpen"
+                    ],
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "invitation"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "applicantMemberId",
+                  "phase",
+                  "draft",
+                  "gate",
+                  "admin",
+                  "submittedAt",
+                  "decidedAt",
+                  "activatedMembershipId",
+                  "submissionPath",
+                  "sponsorId",
+                  "sponsorName",
+                  "invitation"
+                ],
+                "type": "object"
               }
-            },
-            "required": [
-              "applicationId",
-              "clubId",
-              "clubSlug",
-              "clubName",
-              "clubSummary",
-              "admissionPolicy",
-              "applicantMemberId",
-              "sponsorId",
-              "sponsorName",
-              "submissionPath",
-              "phase",
-              "draft",
-              "gate",
-              "admin",
-              "submittedAt",
-              "decidedAt",
-              "activatedMembershipId"
-            ],
-            "type": "object"
+            ]
           }
         },
         "required": [
@@ -1552,207 +1930,396 @@
           },
           "results": {
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "activatedMembershipId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "admin": {
+              "oneOf": [
+                {
                   "additionalProperties": false,
                   "properties": {
-                    "note": {
+                    "activatedMembershipId": {
                       "nullable": true,
                       "type": "string"
                     },
-                    "workflowStage": {
-                      "nullable": true,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "note",
-                    "workflowStage"
-                  ],
-                  "type": "object"
-                },
-                "admissionPolicy": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "applicantMemberId": {
-                  "type": "string"
-                },
-                "applicationId": {
-                  "type": "string"
-                },
-                "clubId": {
-                  "type": "string"
-                },
-                "clubName": {
-                  "type": "string"
-                },
-                "clubSlug": {
-                  "type": "string"
-                },
-                "clubSummary": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "decidedAt": {
-                  "clawclubType": "timestamp",
-                  "nullable": true,
-                  "type": "string"
-                },
-                "draft": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "application": {
-                      "type": "string"
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "socials": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "name",
-                    "socials",
-                    "application"
-                  ],
-                  "type": "object"
-                },
-                "gate": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "feedback": {
+                    "admin": {
                       "additionalProperties": false,
-                      "nullable": true,
                       "properties": {
-                        "message": {
+                        "note": {
                           "nullable": true,
                           "type": "string"
                         },
-                        "missingItems": {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
+                        "workflowStage": {
+                          "nullable": true,
+                          "type": "string"
                         }
                       },
                       "required": [
-                        "message",
-                        "missingItems"
+                        "note",
+                        "workflowStage"
                       ],
                       "type": "object"
                     },
-                    "lastRunAt": {
+                    "admissionPolicy": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "applicantMemberId": {
+                      "type": "string"
+                    },
+                    "applicationId": {
+                      "type": "string"
+                    },
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "clubName": {
+                      "type": "string"
+                    },
+                    "clubSlug": {
+                      "type": "string"
+                    },
+                    "clubSummary": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "decidedAt": {
                       "clawclubType": "timestamp",
                       "nullable": true,
                       "type": "string"
                     },
-                    "verdict": {
-                      "enum": [
-                        "passed",
-                        "needs_revision",
-                        "not_run",
-                        "unavailable"
+                    "draft": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "application": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "socials": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "socials",
+                        "application"
                       ],
+                      "type": "object"
+                    },
+                    "gate": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "feedback": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "message": {
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            "missingItems": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "message",
+                            "missingItems"
+                          ],
+                          "type": "object"
+                        },
+                        "lastRunAt": {
+                          "clawclubType": "timestamp",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "verdict": {
+                          "enum": [
+                            "passed",
+                            "needs_revision",
+                            "not_run",
+                            "unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verdict",
+                        "feedback",
+                        "lastRunAt"
+                      ],
+                      "type": "object"
+                    },
+                    "invitation": {
+                      "enum": [
+                        null
+                      ],
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "phase": {
+                      "enum": [
+                        "revision_required",
+                        "awaiting_review",
+                        "active",
+                        "declined",
+                        "banned",
+                        "removed",
+                        "withdrawn"
+                      ],
+                      "type": "string"
+                    },
+                    "sponsorId": {
+                      "enum": [
+                        null
+                      ],
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "sponsorName": {
+                      "enum": [
+                        null
+                      ],
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "submissionPath": {
+                      "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                      "enum": [
+                        "cold"
+                      ],
+                      "type": "string"
+                    },
+                    "submittedAt": {
+                      "clawclubType": "timestamp",
+                      "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
                       "type": "string"
                     }
                   },
                   "required": [
-                    "verdict",
-                    "feedback",
-                    "lastRunAt"
-                  ],
-                  "type": "object"
-                },
-                "invitation": {
-                  "additionalProperties": false,
-                  "nullable": true,
-                  "properties": {
-                    "invitationId": {
-                      "type": "string"
-                    },
-                    "inviteMode": {
-                      "enum": [
-                        "internal",
-                        "external"
-                      ],
-                      "type": "string"
-                    },
-                    "inviteReasonSnapshot": {
-                      "type": "string"
-                    },
-                    "sponsorshipStillOpen": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "invitationId",
-                    "inviteMode",
-                    "inviteReasonSnapshot",
-                    "sponsorshipStillOpen"
-                  ],
-                  "type": "object"
-                },
-                "phase": {
-                  "enum": [
-                    "revision_required",
-                    "awaiting_review",
-                    "active",
-                    "declined",
-                    "banned",
-                    "removed",
-                    "withdrawn"
-                  ],
-                  "type": "string"
-                },
-                "sponsorId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "sponsorName": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "submissionPath": {
-                  "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                  "enum": [
-                    "cold",
+                    "applicationId",
+                    "clubId",
+                    "clubSlug",
+                    "clubName",
+                    "clubSummary",
+                    "admissionPolicy",
+                    "applicantMemberId",
+                    "phase",
+                    "draft",
+                    "gate",
+                    "admin",
+                    "submittedAt",
+                    "decidedAt",
+                    "activatedMembershipId",
+                    "submissionPath",
+                    "sponsorId",
+                    "sponsorName",
                     "invitation"
                   ],
-                  "type": "string"
+                  "type": "object"
                 },
-                "submittedAt": {
-                  "clawclubType": "timestamp",
-                  "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
-                  "type": "string"
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "activatedMembershipId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "admin": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "note": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "workflowStage": {
+                          "nullable": true,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "note",
+                        "workflowStage"
+                      ],
+                      "type": "object"
+                    },
+                    "admissionPolicy": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "applicantMemberId": {
+                      "type": "string"
+                    },
+                    "applicationId": {
+                      "type": "string"
+                    },
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "clubName": {
+                      "type": "string"
+                    },
+                    "clubSlug": {
+                      "type": "string"
+                    },
+                    "clubSummary": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "decidedAt": {
+                      "clawclubType": "timestamp",
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "draft": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "application": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "socials": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "socials",
+                        "application"
+                      ],
+                      "type": "object"
+                    },
+                    "gate": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "feedback": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "message": {
+                              "nullable": true,
+                              "type": "string"
+                            },
+                            "missingItems": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "message",
+                            "missingItems"
+                          ],
+                          "type": "object"
+                        },
+                        "lastRunAt": {
+                          "clawclubType": "timestamp",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "verdict": {
+                          "enum": [
+                            "passed",
+                            "needs_revision",
+                            "not_run",
+                            "unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verdict",
+                        "feedback",
+                        "lastRunAt"
+                      ],
+                      "type": "object"
+                    },
+                    "invitation": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "invitationId": {
+                          "type": "string"
+                        },
+                        "inviteMode": {
+                          "enum": [
+                            "internal",
+                            "external"
+                          ],
+                          "type": "string"
+                        },
+                        "inviteReasonSnapshot": {
+                          "type": "string"
+                        },
+                        "sponsorshipStillOpen": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "invitationId",
+                        "inviteMode",
+                        "inviteReasonSnapshot",
+                        "sponsorshipStillOpen"
+                      ],
+                      "type": "object"
+                    },
+                    "phase": {
+                      "enum": [
+                        "revision_required",
+                        "awaiting_review",
+                        "active",
+                        "declined",
+                        "banned",
+                        "removed",
+                        "withdrawn"
+                      ],
+                      "type": "string"
+                    },
+                    "sponsorId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "sponsorName": {
+                      "type": "string"
+                    },
+                    "submissionPath": {
+                      "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                      "enum": [
+                        "invitation"
+                      ],
+                      "type": "string"
+                    },
+                    "submittedAt": {
+                      "clawclubType": "timestamp",
+                      "description": "Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "applicationId",
+                    "clubId",
+                    "clubSlug",
+                    "clubName",
+                    "clubSummary",
+                    "admissionPolicy",
+                    "applicantMemberId",
+                    "phase",
+                    "draft",
+                    "gate",
+                    "admin",
+                    "submittedAt",
+                    "decidedAt",
+                    "activatedMembershipId",
+                    "submissionPath",
+                    "sponsorId",
+                    "sponsorName",
+                    "invitation"
+                  ],
+                  "type": "object"
                 }
-              },
-              "required": [
-                "applicationId",
-                "clubId",
-                "clubSlug",
-                "clubName",
-                "clubSummary",
-                "admissionPolicy",
-                "applicantMemberId",
-                "sponsorId",
-                "sponsorName",
-                "submissionPath",
-                "phase",
-                "draft",
-                "gate",
-                "admin",
-                "submittedAt",
-                "decidedAt",
-                "activatedMembershipId"
-              ],
-              "type": "object"
+              ]
             },
             "type": "array"
           }
@@ -3456,97 +4023,183 @@
         "additionalProperties": false,
         "properties": {
           "application": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionPolicy": {
-                "nullable": true,
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
-              "clubSlug": {
-                "type": "string"
-              },
-              "clubSummary": {
-                "nullable": true,
-                "type": "string"
-              },
-              "decidedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "invitation": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
-                "nullable": true,
                 "properties": {
-                  "invitationId": {
+                  "admissionPolicy": {
+                    "nullable": true,
                     "type": "string"
                   },
-                  "inviteMode": {
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
                     "enum": [
-                      "internal",
-                      "external"
+                      null
                     ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "cold"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "invitationId",
-                  "inviteMode"
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
+                  "invitation"
                 ],
                 "type": "object"
               },
-              "phase": {
-                "enum": [
-                  "revision_required",
-                  "awaiting_review",
-                  "active",
-                  "declined",
-                  "banned",
-                  "removed",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "sponsorName": {
-                "nullable": true,
-                "type": "string"
-              },
-              "submissionPath": {
-                "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                "enum": [
-                  "cold",
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "invitationId": {
+                        "type": "string"
+                      },
+                      "inviteMode": {
+                        "enum": [
+                          "internal",
+                          "external"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "invitationId",
+                      "inviteMode"
+                    ],
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "invitation"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
                   "invitation"
                 ],
-                "type": "string"
-              },
-              "submittedAt": {
-                "clawclubType": "timestamp",
-                "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
-                "type": "string"
+                "type": "object"
               }
-            },
-            "required": [
-              "applicationId",
-              "clubId",
-              "clubSlug",
-              "clubName",
-              "clubSummary",
-              "admissionPolicy",
-              "submissionPath",
-              "phase",
-              "submittedAt",
-              "decidedAt"
-            ],
-            "type": "object"
+            ]
           },
           "applicationLimits": {
             "additionalProperties": false,
@@ -3849,97 +4502,183 @@
               "additionalProperties": false,
               "properties": {
                 "application": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "admissionPolicy": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "applicationId": {
-                      "type": "string"
-                    },
-                    "clubId": {
-                      "type": "string"
-                    },
-                    "clubName": {
-                      "type": "string"
-                    },
-                    "clubSlug": {
-                      "type": "string"
-                    },
-                    "clubSummary": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "decidedAt": {
-                      "clawclubType": "timestamp",
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "invitation": {
+                  "oneOf": [
+                    {
                       "additionalProperties": false,
-                      "nullable": true,
                       "properties": {
-                        "invitationId": {
+                        "admissionPolicy": {
+                          "nullable": true,
                           "type": "string"
                         },
-                        "inviteMode": {
+                        "applicationId": {
+                          "type": "string"
+                        },
+                        "clubId": {
+                          "type": "string"
+                        },
+                        "clubName": {
+                          "type": "string"
+                        },
+                        "clubSlug": {
+                          "type": "string"
+                        },
+                        "clubSummary": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "decidedAt": {
+                          "clawclubType": "timestamp",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "invitation": {
                           "enum": [
-                            "internal",
-                            "external"
+                            null
                           ],
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "phase": {
+                          "enum": [
+                            "revision_required",
+                            "awaiting_review",
+                            "active",
+                            "declined",
+                            "banned",
+                            "removed",
+                            "withdrawn"
+                          ],
+                          "type": "string"
+                        },
+                        "sponsorName": {
+                          "enum": [
+                            null
+                          ],
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "submissionPath": {
+                          "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                          "enum": [
+                            "cold"
+                          ],
+                          "type": "string"
+                        },
+                        "submittedAt": {
+                          "clawclubType": "timestamp",
+                          "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
                           "type": "string"
                         }
                       },
                       "required": [
-                        "invitationId",
-                        "inviteMode"
+                        "applicationId",
+                        "clubId",
+                        "clubSlug",
+                        "clubName",
+                        "clubSummary",
+                        "admissionPolicy",
+                        "phase",
+                        "submittedAt",
+                        "decidedAt",
+                        "submissionPath",
+                        "sponsorName",
+                        "invitation"
                       ],
                       "type": "object"
                     },
-                    "phase": {
-                      "enum": [
-                        "revision_required",
-                        "awaiting_review",
-                        "active",
-                        "declined",
-                        "banned",
-                        "removed",
-                        "withdrawn"
-                      ],
-                      "type": "string"
-                    },
-                    "sponsorName": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "submissionPath": {
-                      "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                      "enum": [
-                        "cold",
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "admissionPolicy": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "applicationId": {
+                          "type": "string"
+                        },
+                        "clubId": {
+                          "type": "string"
+                        },
+                        "clubName": {
+                          "type": "string"
+                        },
+                        "clubSlug": {
+                          "type": "string"
+                        },
+                        "clubSummary": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "decidedAt": {
+                          "clawclubType": "timestamp",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "invitation": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "invitationId": {
+                              "type": "string"
+                            },
+                            "inviteMode": {
+                              "enum": [
+                                "internal",
+                                "external"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "invitationId",
+                            "inviteMode"
+                          ],
+                          "type": "object"
+                        },
+                        "phase": {
+                          "enum": [
+                            "revision_required",
+                            "awaiting_review",
+                            "active",
+                            "declined",
+                            "banned",
+                            "removed",
+                            "withdrawn"
+                          ],
+                          "type": "string"
+                        },
+                        "sponsorName": {
+                          "type": "string"
+                        },
+                        "submissionPath": {
+                          "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                          "enum": [
+                            "invitation"
+                          ],
+                          "type": "string"
+                        },
+                        "submittedAt": {
+                          "clawclubType": "timestamp",
+                          "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "applicationId",
+                        "clubId",
+                        "clubSlug",
+                        "clubName",
+                        "clubSummary",
+                        "admissionPolicy",
+                        "phase",
+                        "submittedAt",
+                        "decidedAt",
+                        "submissionPath",
+                        "sponsorName",
                         "invitation"
                       ],
-                      "type": "string"
-                    },
-                    "submittedAt": {
-                      "clawclubType": "timestamp",
-                      "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
-                      "type": "string"
+                      "type": "object"
                     }
-                  },
-                  "required": [
-                    "applicationId",
-                    "clubId",
-                    "clubSlug",
-                    "clubName",
-                    "clubSummary",
-                    "admissionPolicy",
-                    "submissionPath",
-                    "phase",
-                    "submittedAt",
-                    "decidedAt"
-                  ],
-                  "type": "object"
+                  ]
                 },
                 "applicationLimits": {
                   "additionalProperties": false,
@@ -4224,7 +4963,7 @@
                 "type": "string"
               },
               "name": {
-                "description": "Required, max 500 characters. Server trims whitespace; whitespace-only strings are rejected.",
+                "description": "Full name (first and last name required, max 500 chars). Server trims whitespace.",
                 "maxLength": 500,
                 "type": "string"
               },
@@ -4253,97 +4992,183 @@
         "additionalProperties": false,
         "properties": {
           "application": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionPolicy": {
-                "nullable": true,
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
-              "clubSlug": {
-                "type": "string"
-              },
-              "clubSummary": {
-                "nullable": true,
-                "type": "string"
-              },
-              "decidedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "invitation": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
-                "nullable": true,
                 "properties": {
-                  "invitationId": {
+                  "admissionPolicy": {
+                    "nullable": true,
                     "type": "string"
                   },
-                  "inviteMode": {
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
                     "enum": [
-                      "internal",
-                      "external"
+                      null
                     ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "cold"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "invitationId",
-                  "inviteMode"
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
+                  "invitation"
                 ],
                 "type": "object"
               },
-              "phase": {
-                "enum": [
-                  "revision_required",
-                  "awaiting_review",
-                  "active",
-                  "declined",
-                  "banned",
-                  "removed",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "sponsorName": {
-                "nullable": true,
-                "type": "string"
-              },
-              "submissionPath": {
-                "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                "enum": [
-                  "cold",
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "invitationId": {
+                        "type": "string"
+                      },
+                      "inviteMode": {
+                        "enum": [
+                          "internal",
+                          "external"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "invitationId",
+                      "inviteMode"
+                    ],
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "invitation"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
                   "invitation"
                 ],
-                "type": "string"
-              },
-              "submittedAt": {
-                "clawclubType": "timestamp",
-                "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
-                "type": "string"
+                "type": "object"
               }
-            },
-            "required": [
-              "applicationId",
-              "clubId",
-              "clubSlug",
-              "clubName",
-              "clubSummary",
-              "admissionPolicy",
-              "submissionPath",
-              "phase",
-              "submittedAt",
-              "decidedAt"
-            ],
-            "type": "object"
+            ]
           },
           "applicationLimits": {
             "additionalProperties": false,
@@ -4608,97 +5433,183 @@
         "additionalProperties": false,
         "properties": {
           "application": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionPolicy": {
-                "nullable": true,
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
-              "clubSlug": {
-                "type": "string"
-              },
-              "clubSummary": {
-                "nullable": true,
-                "type": "string"
-              },
-              "decidedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "invitation": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
-                "nullable": true,
                 "properties": {
-                  "invitationId": {
+                  "admissionPolicy": {
+                    "nullable": true,
                     "type": "string"
                   },
-                  "inviteMode": {
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
                     "enum": [
-                      "internal",
-                      "external"
+                      null
                     ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "cold"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "invitationId",
-                  "inviteMode"
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
+                  "invitation"
                 ],
                 "type": "object"
               },
-              "phase": {
-                "enum": [
-                  "revision_required",
-                  "awaiting_review",
-                  "active",
-                  "declined",
-                  "banned",
-                  "removed",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "sponsorName": {
-                "nullable": true,
-                "type": "string"
-              },
-              "submissionPath": {
-                "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                "enum": [
-                  "cold",
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "invitationId": {
+                        "type": "string"
+                      },
+                      "inviteMode": {
+                        "enum": [
+                          "internal",
+                          "external"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "invitationId",
+                      "inviteMode"
+                    ],
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "invitation"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
                   "invitation"
                 ],
-                "type": "string"
-              },
-              "submittedAt": {
-                "clawclubType": "timestamp",
-                "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
-                "type": "string"
+                "type": "object"
               }
-            },
-            "required": [
-              "applicationId",
-              "clubId",
-              "clubSlug",
-              "clubName",
-              "clubSummary",
-              "admissionPolicy",
-              "submissionPath",
-              "phase",
-              "submittedAt",
-              "decidedAt"
-            ],
-            "type": "object"
+            ]
           },
           "applicationLimits": {
             "additionalProperties": false,
@@ -4948,8 +5859,8 @@
         },
         {
           "code": "application_blocked",
-          "meaning": "This member is blocked from reapplying to the club because they were previously banned or removed.",
-          "recovery": "Do not retry automatically. Ask a club admin if the block should be reconsidered."
+          "meaning": "This member is blocked from applying to the club because a temporary decline block or persistent removal/ban block is active.",
+          "recovery": "Do not retry automatically. Wait until the temporary block expires, or ask a club admin if a persistent block should be reconsidered."
         },
         {
           "code": "member_already_active",
@@ -5006,7 +5917,7 @@
                 "type": "string"
               },
               "name": {
-                "description": "Required, max 500 characters. Server trims whitespace; whitespace-only strings are rejected.",
+                "description": "Full name (first and last name required, max 500 chars). Server trims whitespace.",
                 "maxLength": 500,
                 "type": "string"
               },
@@ -5047,97 +5958,183 @@
         "additionalProperties": false,
         "properties": {
           "application": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionPolicy": {
-                "nullable": true,
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
-              "clubSlug": {
-                "type": "string"
-              },
-              "clubSummary": {
-                "nullable": true,
-                "type": "string"
-              },
-              "decidedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "invitation": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
-                "nullable": true,
                 "properties": {
-                  "invitationId": {
+                  "admissionPolicy": {
+                    "nullable": true,
                     "type": "string"
                   },
-                  "inviteMode": {
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
                     "enum": [
-                      "internal",
-                      "external"
+                      null
                     ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "cold"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "invitationId",
-                  "inviteMode"
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
+                  "invitation"
                 ],
                 "type": "object"
               },
-              "phase": {
-                "enum": [
-                  "revision_required",
-                  "awaiting_review",
-                  "active",
-                  "declined",
-                  "banned",
-                  "removed",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "sponsorName": {
-                "nullable": true,
-                "type": "string"
-              },
-              "submissionPath": {
-                "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                "enum": [
-                  "cold",
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "invitationId": {
+                        "type": "string"
+                      },
+                      "inviteMode": {
+                        "enum": [
+                          "internal",
+                          "external"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "invitationId",
+                      "inviteMode"
+                    ],
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "invitation"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
                   "invitation"
                 ],
-                "type": "string"
-              },
-              "submittedAt": {
-                "clawclubType": "timestamp",
-                "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
-                "type": "string"
+                "type": "object"
               }
-            },
-            "required": [
-              "applicationId",
-              "clubId",
-              "clubSlug",
-              "clubName",
-              "clubSummary",
-              "admissionPolicy",
-              "submissionPath",
-              "phase",
-              "submittedAt",
-              "decidedAt"
-            ],
-            "type": "object"
+            ]
           },
           "applicationLimits": {
             "additionalProperties": false,
@@ -10212,8 +11209,8 @@
         },
         {
           "code": "application_blocked",
-          "meaning": "The target is blocked from reapplying to this club because they were previously removed or banned.",
-          "recovery": "Do not retry automatically. Ask a club admin whether the block should be reconsidered."
+          "meaning": "The target is blocked from applying to this club because a temporary decline block or persistent removal/ban block is active.",
+          "recovery": "Do not retry automatically. Wait until the temporary block expires, or ask a club admin whether a persistent block should be reconsidered."
         }
       ],
       "description": "Issue a new invitation for a candidate in a specific club.",
@@ -10570,8 +11567,8 @@
         },
         {
           "code": "application_blocked",
-          "meaning": "This member is blocked from reapplying to the club because they were previously banned or removed.",
-          "recovery": "Do not retry automatically. Ask a club admin if the block should be reconsidered."
+          "meaning": "This member is blocked from applying to the club because a temporary decline block or persistent removal/ban block is active.",
+          "recovery": "Do not retry automatically. Wait until the temporary block expires, or ask a club admin if a persistent block should be reconsidered."
         },
         {
           "code": "member_already_active",
@@ -10651,97 +11648,183 @@
         "additionalProperties": false,
         "properties": {
           "application": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionPolicy": {
-                "nullable": true,
-                "type": "string"
-              },
-              "applicationId": {
-                "type": "string"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
-              "clubSlug": {
-                "type": "string"
-              },
-              "clubSummary": {
-                "nullable": true,
-                "type": "string"
-              },
-              "decidedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "invitation": {
+            "oneOf": [
+              {
                 "additionalProperties": false,
-                "nullable": true,
                 "properties": {
-                  "invitationId": {
+                  "admissionPolicy": {
+                    "nullable": true,
                     "type": "string"
                   },
-                  "inviteMode": {
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
                     "enum": [
-                      "internal",
-                      "external"
+                      null
                     ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "enum": [
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "cold"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "invitationId",
-                  "inviteMode"
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
+                  "invitation"
                 ],
                 "type": "object"
               },
-              "phase": {
-                "enum": [
-                  "revision_required",
-                  "awaiting_review",
-                  "active",
-                  "declined",
-                  "banned",
-                  "removed",
-                  "withdrawn"
-                ],
-                "type": "string"
-              },
-              "sponsorName": {
-                "nullable": true,
-                "type": "string"
-              },
-              "submissionPath": {
-                "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
-                "enum": [
-                  "cold",
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "clubName": {
+                    "type": "string"
+                  },
+                  "clubSlug": {
+                    "type": "string"
+                  },
+                  "clubSummary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "decidedAt": {
+                    "clawclubType": "timestamp",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "invitation": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "invitationId": {
+                        "type": "string"
+                      },
+                      "inviteMode": {
+                        "enum": [
+                          "internal",
+                          "external"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "invitationId",
+                      "inviteMode"
+                    ],
+                    "type": "object"
+                  },
+                  "phase": {
+                    "enum": [
+                      "revision_required",
+                      "awaiting_review",
+                      "active",
+                      "declined",
+                      "banned",
+                      "removed",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsorName": {
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "description": "`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.",
+                    "enum": [
+                      "invitation"
+                    ],
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "clawclubType": "timestamp",
+                    "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "applicationId",
+                  "clubId",
+                  "clubSlug",
+                  "clubName",
+                  "clubSummary",
+                  "admissionPolicy",
+                  "phase",
+                  "submittedAt",
+                  "decidedAt",
+                  "submissionPath",
+                  "sponsorName",
                   "invitation"
                 ],
-                "type": "string"
-              },
-              "submittedAt": {
-                "clawclubType": "timestamp",
-                "description": "Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.",
-                "type": "string"
+                "type": "object"
               }
-            },
-            "required": [
-              "applicationId",
-              "clubId",
-              "clubSlug",
-              "clubName",
-              "clubSummary",
-              "admissionPolicy",
-              "submissionPath",
-              "phase",
-              "submittedAt",
-              "decidedAt"
-            ],
-            "type": "object"
+            ]
           },
           "applicationLimits": {
             "additionalProperties": false,
@@ -15577,8 +16660,8 @@
         },
         {
           "code": "application_blocked",
-          "meaning": "The member has a block record in this club from a prior removal or ban.",
-          "recovery": "Use the superadmin reactivation path on the historical membership instead of creating a fresh one."
+          "meaning": "The member has an active application block in this club from a temporary decline block or prior removal/ban.",
+          "recovery": "Use the superadmin reactivation path for historical memberships, wait for a temporary block to expire, or remove the block out of band before creating a fresh membership."
         }
       ],
       "description": "Add an existing member to a club (bypasses club admin requirement).",
@@ -19028,5 +20111,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "d955951e51787b08"
+  "schemaHash": "a86e1bcae3ddb7f5"
 }

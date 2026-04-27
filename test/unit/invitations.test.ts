@@ -141,6 +141,35 @@ test('invitations.issue rejects single-word name', async () => {
   );
 });
 
+test('clubs.apply rejects single-word draft name through the shared person-name field', async () => {
+  const auth = makeAuthResult();
+  const repository = makeRepository({
+    async authenticateBearerToken() { return auth; },
+  });
+
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
+  await assert.rejects(
+    () => dispatcher.dispatch({
+      bearerToken: 'test-token',
+      action: 'clubs.apply',
+      payload: {
+        clubSlug: 'club-1',
+        draft: {
+          name: 'Jane',
+          socials: '',
+          application: 'I want to join.',
+        },
+        clientKey: 'single-name-apply',
+      },
+    }),
+    (err: any) => {
+      assert.equal(err.statusCode, 400);
+      assert.match(err.message, /full name/i);
+      return true;
+    },
+  );
+});
+
 test('invitations.issue rejects invalid email', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({

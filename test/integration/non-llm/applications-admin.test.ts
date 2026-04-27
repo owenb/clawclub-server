@@ -466,15 +466,25 @@ describe('clubadmin applications', () => {
     const state = ((decide.data as Record<string, unknown>).application as Record<string, unknown>);
     assert.equal(state.phase, 'banned');
 
-    const [block] = await h.sql<{ block_kind: string; reason: string | null }>(
-      `select block_kind::text as block_kind, reason
+    const [block] = await h.sql<{
+      block_kind: string;
+      expires_at: string | null;
+      reason: string | null;
+      source: string | null;
+    }>(
+      `select block_kind::text as block_kind,
+              expires_at::text as expires_at,
+              reason,
+              source
          from club_applicant_blocks
         where club_id = $1
           and member_id = $2`,
       [owner.club.id, applicant.id],
     );
     assert.equal(block?.block_kind, 'banned');
+    assert.equal(block?.expires_at, null);
     assert.equal(block?.reason, 'Do not reapply.');
+    assert.equal(block?.source, 'application_decision');
   });
 
   it('returns application_already_decided with canonical application details after a prior decision', async () => {

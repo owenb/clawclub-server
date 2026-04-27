@@ -1753,8 +1753,10 @@ CREATE TABLE public.club_applicant_blocks (
     block_kind text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by_member_id public.short_id,
+    expires_at timestamp with time zone,
     reason text,
-    CONSTRAINT club_applicant_blocks_block_kind_check CHECK ((block_kind = ANY (ARRAY['banned'::text, 'removed'::text])))
+    source text,
+    CONSTRAINT club_applicant_blocks_block_kind_check CHECK ((block_kind = ANY (ARRAY['declined'::text, 'banned'::text, 'removed'::text])))
 );
 
 
@@ -2658,7 +2660,7 @@ COPY public.club_activity_cursors (member_id, club_id, last_seq, updated_at) FRO
 -- Data for Name: club_applicant_blocks; Type: TABLE DATA; Schema: public; Owner: clawclub_app
 --
 
-COPY public.club_applicant_blocks (id, club_id, member_id, block_kind, created_at, created_by_member_id, reason) FROM stdin;
+COPY public.club_applicant_blocks (id, club_id, member_id, block_kind, created_at, created_by_member_id, expires_at, reason, source) FROM stdin;
 \.
 
 
@@ -2996,6 +2998,7 @@ COPY public.schema_migrations (filename, applied_at) FROM stdin;
 021_idempotency_actor_scope.sql	2026-04-24 00:51:00+01
 022_member_registered_via_invite.sql	2026-04-25 00:00:00+01
 023_dm_inbox_acknowledged_at.sql	2026-04-26 00:00:00+01
+024_admission_invariants.sql	2026-04-27 00:00:00+01
 \.
 
 
@@ -3626,6 +3629,12 @@ CREATE INDEX club_activity_club_seq_idx ON public.club_activity USING btree (clu
 
 CREATE INDEX club_applicant_blocks_lookup_idx ON public.club_applicant_blocks USING btree (club_id, member_id);
 
+--
+-- Name: club_applicant_blocks_active_lookup_idx; Type: INDEX; Schema: public; Owner: clawclub_app
+--
+
+CREATE INDEX club_applicant_blocks_active_lookup_idx ON public.club_applicant_blocks USING btree (club_id, member_id, expires_at);
+
 
 --
 -- Name: club_application_revisions_lookup_idx; Type: INDEX; Schema: public; Owner: clawclub_app
@@ -4041,17 +4050,10 @@ CREATE INDEX invite_requests_open_candidate_member_idx ON public.invite_requests
 
 
 --
--- Name: invite_requests_open_per_sponsor_email_candidate_idx; Type: INDEX; Schema: public; Owner: clawclub_app
+-- Name: invite_requests_open_per_sponsor_candidate_idx; Type: INDEX; Schema: public; Owner: clawclub_app
 --
 
-CREATE UNIQUE INDEX invite_requests_open_per_sponsor_email_candidate_idx ON public.invite_requests USING btree (club_id, sponsor_member_id, candidate_email_normalized) WHERE ((candidate_member_id IS NULL) AND (revoked_at IS NULL) AND (used_at IS NULL) AND (expired_at IS NULL));
-
-
---
--- Name: invite_requests_open_per_sponsor_member_candidate_idx; Type: INDEX; Schema: public; Owner: clawclub_app
---
-
-CREATE UNIQUE INDEX invite_requests_open_per_sponsor_member_candidate_idx ON public.invite_requests USING btree (club_id, sponsor_member_id, candidate_member_id) WHERE ((candidate_member_id IS NOT NULL) AND (revoked_at IS NULL) AND (used_at IS NULL) AND (expired_at IS NULL));
+CREATE UNIQUE INDEX invite_requests_open_per_sponsor_candidate_idx ON public.invite_requests USING btree (club_id, sponsor_member_id, candidate_email_normalized) WHERE ((revoked_at IS NULL) AND (used_at IS NULL) AND (expired_at IS NULL));
 
 
 --

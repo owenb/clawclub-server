@@ -415,6 +415,9 @@ export const parseFullName = safeString.pipe(z.string().trim().min(1).max(500))
     'Must be a full name (first and last name)',
   );
 
+export const wirePersonName = wireFullName;
+export const parsePersonName = parseFullName;
+
 export const wirePublicName = z.string().max(120)
   .describe('Public display name, max 120 chars. Server trims whitespace; whitespace-only strings are rejected.');
 

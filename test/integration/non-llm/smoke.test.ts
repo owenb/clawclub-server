@@ -172,8 +172,12 @@ describe('smoke', () => {
     );
     const clubsApplyOutput = clubsApply?.output as Record<string, unknown> | undefined;
     const clubsApplyApplication = ((clubsApplyOutput?.properties as Record<string, Record<string, unknown>> | undefined)?.application as Record<string, unknown> | undefined);
-    const clubsApplyApplicationProperties = clubsApplyApplication?.properties as Record<string, Record<string, unknown>> | undefined;
-    assert.match(String(clubsApplyApplicationProperties?.submissionPath?.description ?? ''), /historical metadata/i, 'submissionPath should be explained as historical metadata');
+    const clubsApplyApplicationVariants = (clubsApplyApplication?.oneOf ?? []) as Array<Record<string, unknown>>;
+    assert.ok(clubsApplyApplicationVariants.length >= 2, 'clubs.apply application output should be discriminated by submissionPath');
+    for (const variant of clubsApplyApplicationVariants) {
+      const properties = variant.properties as Record<string, Record<string, unknown>> | undefined;
+      assert.match(String(properties?.submissionPath?.description ?? ''), /historical metadata/i, 'submissionPath should be explained as historical metadata');
+    }
 
     const clubsApplicationsRevise = data.actions.find((a) => a.action === 'clubs.applications.revise');
     const clubsApplicationsReviseErrors = new Set(clubsApplicationsRevise?.businessErrors?.map((error) => error.code) ?? []);

@@ -54,21 +54,71 @@ const adminInvitationMetadata = memberInvitationMetadata.extend({
   sponsorshipStillOpen: z.boolean(),
 });
 
-export const memberApplicationState = z.object({
-  application: z.object({
-    applicationId: z.string(),
-    clubId: z.string(),
-    clubSlug: z.string(),
-    clubName: z.string(),
-    clubSummary: z.string().nullable(),
-    admissionPolicy: z.string().nullable(),
-    submissionPath: z.enum(['cold', 'invitation']).describe(APPLICATION_SUBMISSION_PATH_DESCRIPTION),
-    sponsorName: z.string().nullable().optional(),
-    invitation: memberInvitationMetadata.nullable().optional(),
-    phase: applicationPhase,
-    submittedAt: timestampString.describe('Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.'),
-    decidedAt: timestampString.nullable(),
+const memberApplicationBase = z.object({
+  applicationId: z.string(),
+  clubId: z.string(),
+  clubSlug: z.string(),
+  clubName: z.string(),
+  clubSummary: z.string().nullable(),
+  admissionPolicy: z.string().nullable(),
+  phase: applicationPhase,
+  submittedAt: timestampString.describe('Timestamp of the latest saved draft for this application. When phase is revision_required, this is only a saved-draft timestamp; use workflow.currentlySubmittedToAdmins to know whether admins currently have the application.'),
+  decidedAt: timestampString.nullable(),
+});
+
+const memberColdApplication = memberApplicationBase.extend({
+  submissionPath: z.literal('cold').describe(APPLICATION_SUBMISSION_PATH_DESCRIPTION),
+  sponsorName: z.null(),
+  invitation: z.null(),
+});
+
+const memberInvitationApplication = memberApplicationBase.extend({
+  submissionPath: z.literal('invitation').describe(APPLICATION_SUBMISSION_PATH_DESCRIPTION),
+  sponsorName: z.string(),
+  invitation: memberInvitationMetadata,
+});
+
+const adminApplicationBase = z.object({
+  applicationId: z.string(),
+  clubId: z.string(),
+  clubSlug: z.string(),
+  clubName: z.string(),
+  clubSummary: z.string().nullable(),
+  admissionPolicy: z.string().nullable(),
+  applicantMemberId: z.string(),
+  phase: applicationPhase,
+  draft: applicationDraft,
+  gate: adminApplicationGate,
+  admin: z.object({
+    note: z.string().nullable(),
+    workflowStage: z.string().nullable(),
   }),
+  submittedAt: timestampString.describe('Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.'),
+  decidedAt: timestampString.nullable(),
+  activatedMembershipId: z.string().nullable(),
+});
+
+const adminColdApplication = adminApplicationBase.extend({
+  submissionPath: z.literal('cold').describe(APPLICATION_SUBMISSION_PATH_DESCRIPTION),
+  sponsorId: z.null(),
+  sponsorName: z.null(),
+  invitation: z.null(),
+});
+
+const adminInvitationApplication = adminApplicationBase.extend({
+  submissionPath: z.literal('invitation').describe(APPLICATION_SUBMISSION_PATH_DESCRIPTION),
+  // Invitation-path applications keep sponsor snapshots after hard-delete; the
+  // backing member id can be nulled by the FK while sponsorName stays durable.
+  sponsorId: z.string().nullable(),
+  sponsorName: z.string(),
+  invitation: adminInvitationMetadata,
+});
+
+export const memberApplicationState = z.object({
+  application: z.discriminatedUnion('submissionPath', [
+    memberColdApplication,
+    memberInvitationApplication,
+  ]),
   draft: applicationDraft,
   gate: memberApplicationGate,
   workflow: applicationWorkflow,
@@ -90,26 +140,7 @@ export const memberApplicationState = z.object({
   }).optional(),
 });
 
-export const adminApplicationState = z.object({
-  applicationId: z.string(),
-  clubId: z.string(),
-  clubSlug: z.string(),
-  clubName: z.string(),
-  clubSummary: z.string().nullable(),
-  admissionPolicy: z.string().nullable(),
-  applicantMemberId: z.string(),
-  sponsorId: z.string().nullable(),
-  sponsorName: z.string().nullable(),
-  submissionPath: z.enum(['cold', 'invitation']).describe(APPLICATION_SUBMISSION_PATH_DESCRIPTION),
-  invitation: adminInvitationMetadata.nullable().optional(),
-  phase: applicationPhase,
-  draft: applicationDraft,
-  gate: adminApplicationGate,
-  admin: z.object({
-    note: z.string().nullable(),
-    workflowStage: z.string().nullable(),
-  }),
-  submittedAt: timestampString.describe('Timestamp of the latest saved draft for this application. For revision_required rows this is not proof the application has reached the admin queue yet.'),
-  decidedAt: timestampString.nullable(),
-  activatedMembershipId: z.string().nullable(),
-});
+export const adminApplicationState = z.discriminatedUnion('submissionPath', [
+  adminColdApplication,
+  adminInvitationApplication,
+]);

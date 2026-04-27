@@ -33,6 +33,7 @@ import { buildSecondClubWelcome } from '../clubs/welcome.ts';
 import { appendClubActivity } from '../clubs/content.ts';
 import { deliverCoreNotifications, type NotificationRefInput } from '../notification-substrate.ts';
 import { throwSecretReplayUnavailable, withIdempotency } from '../idempotency.ts';
+import { assertCanApplyToClub, writeApplicantBlock } from '../application-policy.ts';
 import { createInitialClubProfileVersion, emptyClubProfileFields } from './profiles.ts';
 import { createBearerTokenInDb } from './tokens.ts';
 
@@ -282,26 +283,6 @@ async function readMembershipSummary(client: DbClient, membershipId: string): Pr
   return result.rows[0] ? mapMembershipRow(result.rows[0]) : null;
 }
 
-async function writeApplicantBlock(client: DbClient, input: {
-  clubId: string;
-  memberId: string;
-  blockKind: 'removed' | 'banned';
-  creatorMemberId: string | null;
-  reason: string | null;
-}): Promise<void> {
-  await client.query(
-    `insert into club_applicant_blocks (
-       club_id,
-       member_id,
-       block_kind,
-       created_by_member_id,
-       reason
-     )
-     values ($1, $2, $3, $4, $5)`,
-    [input.clubId, input.memberId, input.blockKind, input.creatorMemberId, input.reason],
-  );
-}
-
 async function clearApplicantBlock(client: DbClient, input: {
   clubId: string;
   memberId: string;
@@ -357,26 +338,6 @@ async function assertNoLiveMembership(client: DbClient, input: {
   if (existing.rows[0]?.ok) {
     throw new AppError('membership_exists', 'This member already has a membership record in the club');
   }
-}
-
-async function assertNoClubBlock(client: DbClient, input: {
-  clubId: string;
-  memberId: string;
-}): Promise<void> {
-  const result = await client.query<{ block_kind: 'banned' | 'removed' }>(
-    `select block_kind
-       from club_applicant_blocks
-      where club_id = $1
-        and member_id = $2
-      order by created_at desc
-      limit 1`,
-    [input.clubId, input.memberId],
-  );
-  const block = result.rows[0];
-  if (!block) {
-    return;
-  }
-  throw new AppError('application_blocked', `You cannot apply to this club after being ${block.block_kind}.`);
 }
 
 export async function assertClubHasCapacity(client: DbClient, input: {
@@ -1072,6 +1033,7 @@ export async function transitionMembershipState(
         clubId: membership.club_id,
         memberId: membership.member_id,
         blockKind: input.nextStatus,
+        source: 'membership_transition',
         creatorMemberId: input.actorMemberId,
         reason: input.reason ?? null,
       });
@@ -1218,6 +1180,7 @@ export async function updateMembership(pool: Pool, input: UpdateMembershipInput)
           clubId: membership.club_id,
           memberId: membership.member_id,
           blockKind: currentStatus,
+          source: 'membership_transition',
           creatorMemberId: input.actorMemberId,
           reason: input.patch.reason ?? null,
         });
@@ -1427,7 +1390,7 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
       clubId: input.clubId,
       memberId: input.memberId,
     });
-    await assertNoClubBlock(client, {
+    await assertCanApplyToClub(client, {
       clubId: input.clubId,
       memberId: input.memberId,
     });

@@ -10,7 +10,7 @@ import {
   describeOptionalScopedClubId,
   describeScopedClubId,
   parseEmail,
-  parseFullName,
+  parsePersonName,
   parseHumanRequiredString,
   parseRequiredString,
   parseApplicationText,
@@ -21,7 +21,7 @@ import {
   paginatedOutput,
   paginationFields,
   wireEmail,
-  wireFullName,
+  wirePersonName,
   wireApplicationText,
   wireBoundedString,
   wireHumanRequiredString,
@@ -43,7 +43,7 @@ const invitationsIssueInputSchema = z.object({
   clubId: wireRequiredString.describe(describeScopedClubId('Club to invite the candidate into.')),
   candidateMemberId: wireRequiredString.optional().describe('Existing registered member to notify in-app directly. When this is present, omit candidateEmail and candidateName.'),
   candidateEmail: wireAsciiEmail.optional().describe('Candidate email. If it already belongs to an active member, the server upgrades the invitation to in-app delivery automatically and no code is issued.'),
-  candidateName: wireFullName.optional().describe('Full candidate name. Required only when candidateEmail does not resolve to an existing active member.'),
+  candidateName: wirePersonName.optional().describe('Full candidate name. Required only when candidateEmail does not resolve to an existing active member.'),
   reason: wireHumanRequiredString.describe('Why this candidate should be invited'),
   clientKey: wireOptionalOpaqueString.describe(describeClientKey('Optional idempotency key for replay-safe invitation issuance.')),
 }).superRefine((value, ctx) => {
@@ -109,7 +109,7 @@ const invitationsIssueParseSchema = z.object({
   clubId: parseRequiredString,
   candidateMemberId: parseRequiredString.optional(),
   candidateEmail: parseAsciiEmail.optional(),
-  candidateName: parseFullName.optional(),
+  candidateName: parsePersonName.optional(),
   reason: parseHumanRequiredString,
   clientKey: parseTrimmedNullableOpaqueString.default(null),
 }).superRefine((value, ctx) => {
@@ -201,8 +201,8 @@ const invitationsIssue: ActionDefinition = {
     },
     {
       code: 'application_blocked',
-      meaning: 'The target is blocked from reapplying to this club because they were previously removed or banned.',
-      recovery: 'Do not retry automatically. Ask a club admin whether the block should be reconsidered.',
+      meaning: 'The target is blocked from applying to this club because a temporary decline block or persistent removal/ban block is active.',
+      recovery: 'Do not retry automatically. Wait until the temporary block expires, or ask a club admin whether a persistent block should be reconsidered.',
     },
   ],
   wire: {
@@ -418,8 +418,8 @@ const invitationsRedeem: ActionDefinition = {
     },
     {
       code: 'application_blocked',
-      meaning: 'This member is blocked from reapplying to the club because they were previously banned or removed.',
-      recovery: 'Do not retry automatically. Ask a club admin if the block should be reconsidered.',
+      meaning: 'This member is blocked from applying to the club because a temporary decline block or persistent removal/ban block is active.',
+      recovery: 'Do not retry automatically. Wait until the temporary block expires, or ask a club admin if a persistent block should be reconsidered.',
     },
     {
       code: 'member_already_active',

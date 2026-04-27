@@ -21,6 +21,9 @@ export const DEFAULT_CONFIG_V1 = {
     applications: {
       maxInFlightPerMember: 3,
     },
+    applicationBlocks: {
+      postDeclineDays: 30,
+    },
     invitations: {
       openPerSponsorPerClub: 3,
     },

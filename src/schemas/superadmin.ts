@@ -1347,8 +1347,8 @@ const superadminMembershipsCreate: ActionDefinition = {
     },
     {
       code: 'application_blocked',
-      meaning: 'The member has a block record in this club from a prior removal or ban.',
-      recovery: 'Use the superadmin reactivation path on the historical membership instead of creating a fresh one.',
+      meaning: 'The member has an active application block in this club from a temporary decline block or prior removal/ban.',
+      recovery: 'Use the superadmin reactivation path for historical memberships, wait for a temporary block to expire, or remove the block out of band before creating a fresh membership.',
     },
   ],
 

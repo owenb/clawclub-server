@@ -15,6 +15,7 @@ import { withIdempotency } from '../idempotency.ts';
 import { deliverCoreNotifications } from '../notification-substrate.ts';
 import { buildInvitationCode } from '../token.ts';
 import { encodeCursor } from '../schemas/fields.ts';
+import { assertCanApplyToClub } from '../application-policy.ts';
 
 const INVITATION_CODE_UNIQUE_CONSTRAINT = 'invite_codes_code_unique';
 const INVITATION_CODE_RETRY_LIMIT = 3;
@@ -55,19 +56,6 @@ type InvitationClubNotificationRow = {
   slug: string;
   name: string;
   admission_policy: string | null;
-};
-
-type ExistingMembershipRow = {
-  membership_id: string;
-  club_id: string;
-  member_id: string;
-  role: 'clubadmin' | 'member';
-  status: 'active' | 'cancelled';
-  joined_at: string | null;
-};
-
-type ApplicantBlockRow = {
-  block_kind: 'banned' | 'removed';
 };
 
 function assertInvitationSponsorPresent(
@@ -194,41 +182,6 @@ export async function resolveInvitationTarget(
   };
 }
 
-async function readExistingMembership(
-  client: DbClient,
-  clubId: string,
-  memberId: string,
-): Promise<ExistingMembershipRow | null> {
-  const result = await client.query<ExistingMembershipRow>(
-    `select id as membership_id
-            , club_id
-            , member_id
-            , role::text
-            , status::text
-            , joined_at::text
-     from current_club_memberships
-     where club_id = $1
-       and member_id = $2
-       and status in ('active', 'cancelled')
-     limit 1`,
-    [clubId, memberId],
-  );
-  return result.rows[0] ?? null;
-}
-
-function buildMembershipConflictDetails(membership: ExistingMembershipRow): Record<string, unknown> {
-  return {
-    membership: {
-      membershipId: membership.membership_id,
-      clubId: membership.club_id,
-      memberId: membership.member_id,
-      role: membership.role,
-      status: membership.status,
-      joinedAt: membership.joined_at,
-    },
-  };
-}
-
 async function assertInvitationTargetCanApply(
   client: DbClient,
   input: {
@@ -240,26 +193,10 @@ async function assertInvitationTargetCanApply(
     return;
   }
 
-  const membership = await readExistingMembership(client, input.clubId, input.target.memberId);
-  if (membership?.status === 'active') {
-    throw new AppError('member_already_active', 'This member already has an active membership in the club.', {
-      details: buildMembershipConflictDetails(membership),
-    });
-  }
-
-  const block = await client.query<ApplicantBlockRow>(
-    `select block_kind
-     from club_applicant_blocks
-     where club_id = $1
-       and member_id = $2
-     order by created_at desc
-     limit 1`,
-    [input.clubId, input.target.memberId],
-  );
-  const row = block.rows[0];
-  if (row) {
-    throw new AppError('application_blocked', `This member is blocked from reapplying to this club after being ${row.block_kind}.`);
-  }
+  await assertCanApplyToClub(client, {
+    clubId: input.clubId,
+    memberId: input.target.memberId,
+  });
 }
 
 function invitationTargetKey(target: ResolvedInvitationTarget): { candidateMemberId: string | null; candidateEmail: string } {

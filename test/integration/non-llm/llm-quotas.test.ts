@@ -407,7 +407,7 @@ describe('clubs.apply global quota', () => {
 
     const err = await h.apiErr(applicant.token, 'clubs.apply', {
       clubSlug: owner.club.slug,
-      draft: { name: 'Blocked', socials: '', application: 'I want to join.' },
+      draft: { name: 'Blocked Applicant', socials: '', application: 'I want to join.' },
       clientKey: 'apply-block-1',
     });
     assert.equal(err.status, 429);

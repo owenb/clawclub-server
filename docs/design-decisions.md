@@ -222,8 +222,9 @@ The membership graph is built in two stages: first register a platform account, 
 ### Applying to a club
 
 - clubs are private — there is no public directory. Authenticated callers apply via `clubs.apply` with a `clubSlug` they already know (from an invitation, a sponsor, or an operator channel outside the API). The only role that can enumerate every club is `superadmin`, via `superadmin.clubs.list`
-- invitation-backed applicants take one of two paths depending on how the sponsor invited them. Existing registered members (internal invites) are notified in-app via `invitation.received` and submit through `clubs.apply`, which auto-binds the open invite for `(member, club)` or accepts an explicit `invitationId` when more than one exists. External email targets redeem a code via `invitations.redeem`. Both paths require the same full draft (`name`, `socials`, `application`) and run through the same admission gate and admin review
+- invitation-backed applicants take one of two paths depending on how the sponsor invited them. Existing registered members (internal invites) are notified in-app via `invitation.received` and submit through `clubs.apply`, which auto-binds the open invite for `(member, club)` or accepts an explicit `invitationId` when more than one exists. External email targets redeem a code via `invitations.redeem`. Both paths require the same full draft (`name`, `socials`, `application`); `name` uses the shared person-name field and requires first + last name. Both paths run through the same admission gate and admin review
 - cancelled memberships can reapply through `clubs.apply`; acceptance reactivates the original membership row via the admin-reviewed path. Clubadmins no longer have a direct `cancelled → active` transition (see § Sponsor primitive) — reactivation only happens through an accepted application or superadmin intervention
+- application admission eligibility is centralized in `assertCanApplyToClub(...)`. It checks active membership and active applicant blocks before any application write path proceeds. Declines write `club_applicant_blocks(block_kind = 'declined')` with `expires_at = decided_at + policy.applicationBlocks.postDeclineDays`; a value of `0` disables the temporary post-decline block. Removal and ban blocks have `expires_at = null` and remain persistent until an operator clears or reactivates the historical membership. Application entry checks ignore expired blocks with `(expires_at is null or expires_at > now())`
 - `clubs.applications.revise` is used when the application completeness gate returns `revision_required`
 - `clubs.applications.withdraw` terminates an in-flight application
 - the server enforces a hard cap of 3 in-flight applications per member
@@ -251,10 +252,10 @@ Storage split:
 - `invite_requests.target_source` is `member_id` (sponsor explicitly addressed a registered member) or `email` (sponsor addressed an email; server may have auto-upgraded if it matched an active member)
 
 Issue behavior (`invitations.issue`):
-- input accepts either `candidateMemberId` or `candidateEmail`. `candidateName` is only required when `candidateEmail` does not already resolve to an active member
+- input accepts either `candidateMemberId` or `candidateEmail`. `candidateName` is only required when `candidateEmail` does not already resolve to an active member, and it uses the same shared person-name field as application drafts
 - server resolution order: explicit `candidateMemberId` → internal target; else `candidateEmail` looked up against active members → internal target if it matches, external target otherwise
 - if the target already has an active membership in the club, the call is rejected with `member_already_active` and the existing membership is returned in `error.details`
-- if the target has a `club_applicant_blocks` entry (`banned` / `removed`), the call is rejected with `application_blocked`
+- if the target has an active `club_applicant_blocks` entry (`declined`, `banned`, or `removed`, with expired rows ignored), the call is rejected with `application_blocked`
 - when `candidateEmail` does not resolve and `candidateName` is missing, the call is rejected with `candidate_name_required` before any write and without consuming the `clientKey`
 - issuance is LLM-gated on `reason`; the gate artifact kind is `invitation`
 - existing registered members receive the `invitation.received` notification with `next.action = clubs.apply`; external targets have their plaintext code returned in the response for out-of-band handoff (the server never emails it)
@@ -264,7 +265,7 @@ Privacy / redaction:
 - the sponsor-facing response still reveals a yes/no "this email is registered" oracle via `deliveryKind` (`notification` vs `code`). This is an accepted tradeoff: the ergonomic win of letting sponsors target by email alone outweighs the narrow residual leak; there is no identity attribution beyond registration existence
 
 Uniqueness and quota:
-- partial unique indexes enforce one live invite per `(club_id, sponsor_member_id, candidate_member_id)` and one live invite per `(club_id, sponsor_member_id, candidate_email_normalized)` when the former does not apply: `invite_requests_open_per_sponsor_member_candidate_idx` and `invite_requests_open_per_sponsor_email_candidate_idx`
+- one partial unique index enforces one live invite per `(club_id, sponsor_member_id, candidate_email_normalized)` regardless of target mode: `invite_requests_open_per_sponsor_candidate_idx`. This is intentionally email-keyed because `candidate_email` is always present and is the durable bridge between "addressed by email" and "addressed by member id" invitations for the same real candidate
 - each sponsor has up to 3 live invitations per club; exceeding returns `429 invitation_quota_exceeded`. A live invitation is one that is neither revoked, nor used, nor expired. Replay of the same `(sponsor, club, target)` returns the existing live invitation (in addition to the optional `clientKey` barrier at the idempotency layer)
 - both modes expire 30 days after issuance
 

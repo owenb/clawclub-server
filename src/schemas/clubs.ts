@@ -12,6 +12,7 @@ import {
   parseApplicationText,
   parseBoundedString,
   parseHumanRequiredString,
+  parsePersonName,
   parseSlug,
   paginatedOutput,
   paginationFields,
@@ -21,6 +22,7 @@ import {
   wireBoundedString,
   wireHumanRequiredString,
   wireOptionalEmptyBoundedString,
+  wirePersonName,
   wireRequiredString,
   wireSlug,
 } from './fields.ts';
@@ -203,8 +205,8 @@ const clubsApply: ActionDefinition = {
     },
     {
       code: 'application_blocked',
-      meaning: 'This member is blocked from reapplying to the club because they were previously banned or removed.',
-      recovery: 'Do not retry automatically. Ask a club admin if the block should be reconsidered.',
+      meaning: 'This member is blocked from applying to the club because a temporary decline block or persistent removal/ban block is active.',
+      recovery: 'Do not retry automatically. Wait until the temporary block expires, or ask a club admin if a persistent block should be reconsidered.',
     },
     {
       code: 'member_already_active',
@@ -242,7 +244,7 @@ const clubsApply: ActionDefinition = {
       clubSlug: wireRequiredString.describe(describePublicClubSlug('Club to apply to.')),
       invitationId: wireRequiredString.optional().describe('Optional invitation to bind when applying through an existing in-app invite. Omit this unless multiple live invites exist for the same club.'),
       draft: z.object({
-        name: wireBoundedString,
+        name: wirePersonName,
         socials: wireOptionalEmptyBoundedString,
         application: wireApplicationText.describe('Why this club should admit you'),
       }),
@@ -255,7 +257,7 @@ const clubsApply: ActionDefinition = {
       clubSlug: parseRequiredString,
       invitationId: parseRequiredString.optional(),
       draft: z.object({
-        name: parseBoundedString,
+        name: parsePersonName,
         socials: parseOptionalEmptyBoundedString,
         application: parseApplicationText,
       }),
@@ -320,7 +322,7 @@ const clubsApplicationsRevise: ActionDefinition = {
     input: z.object({
       applicationId: wireRequiredString.describe('Application to revise'),
       draft: z.object({
-        name: wireBoundedString,
+        name: wirePersonName,
         socials: wireOptionalEmptyBoundedString,
         application: wireApplicationText.describe('Revised application text'),
       }),
@@ -332,7 +334,7 @@ const clubsApplicationsRevise: ActionDefinition = {
     input: z.object({
       applicationId: parseRequiredString,
       draft: z.object({
-        name: parseBoundedString,
+        name: parsePersonName,
         socials: parseOptionalEmptyBoundedString,
         application: parseApplicationText,
       }),
