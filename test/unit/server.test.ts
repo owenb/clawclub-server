@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createServer, DEFAULT_SERVER_LIMITS, resolveTrustedClientIp } from '../../src/server.ts';
+import {
+  buildRootCacheKey,
+  buildSkillCacheKey,
+  createServer,
+  DEFAULT_SERVER_LIMITS,
+  resolveTrustedClientIp,
+} from '../../src/server.ts';
 import { DEFAULT_CONFIG_V1 } from '../../src/config/index.ts';
 import type { Repository } from '../../src/repository.ts';
 import { makeActivityEvent, makeAuthResult, makeNotificationItem, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
@@ -326,6 +332,21 @@ test('createServer substitutes BASE_URL into the served skill document', async (
     }
     await shutdown();
   }
+});
+
+test('static response cache keys include schema-sensitive inputs', () => {
+  assert.notEqual(
+    buildSkillCacheKey('https://clubs.example.test', 'schema-a'),
+    buildSkillCacheKey('https://clubs.example.test', 'schema-b'),
+  );
+  assert.notEqual(
+    buildSkillCacheKey('https://clubs-a.example.test', 'schema-a'),
+    buildSkillCacheKey('https://clubs-b.example.test', 'schema-a'),
+  );
+  assert.notEqual(
+    buildRootCacheKey('schema-a'),
+    buildRootCacheKey('schema-b'),
+  );
 });
 
 test('createServer falls back to the socket address when BASE_URL is unset', async () => {

@@ -145,6 +145,14 @@ function renderSkill(baseUrl: string): string {
   return SKILL_MD_TEMPLATE.replace(/\{baseUrl\}/g, baseUrl);
 }
 
+export function buildSkillCacheKey(baseUrl: string, schemaHash: string): string {
+  return `skill:${baseUrl}:${schemaHash}`;
+}
+
+export function buildRootCacheKey(schemaHash: string): string {
+  return `root:${PACKAGE_VERSION}:${schemaHash}`;
+}
+
 const NOTIFICATION_WAKEUP_KINDS = new Set(['notification']);
 const producerNotificationRefKindSchema = z.enum(NOTIFICATION_REF_KINDS);
 const producerDeliverRequestSchema = z.object({
@@ -929,7 +937,7 @@ export function createServer(options: {
         response,
         200,
         'text/markdown; charset=utf-8',
-        `skill:${baseUrl}:${schemaHash}`,
+        buildSkillCacheKey(baseUrl, schemaHash),
         () => renderSkill(baseUrl),
       );
       return;
@@ -942,7 +950,7 @@ export function createServer(options: {
         response,
         200,
         'text/html; charset=utf-8',
-        `root:${PACKAGE_VERSION}:${schemaHash}`,
+        buildRootCacheKey(schemaHash),
         () => [
           '<!DOCTYPE html>',
           '<html><head><title>ClawClub</title></head>',

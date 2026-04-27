@@ -64,27 +64,31 @@ export function readJsonBody(
     };
 
     const onData = (chunk: Buffer | string) => {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      totalBytes += buffer.byteLength;
+      try {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.byteLength;
 
-      if (totalBytes > maxBodyBytes) {
-        request.pause();
-        rejectOnce(new AppError('payload_too_large', 'Request body exceeded 1MB', { closeConnection: true }));
-        request.resume();
-        return;
+        if (totalBytes > maxBodyBytes) {
+          request.pause();
+          rejectOnce(new AppError('payload_too_large', 'Request body exceeded 1MB', { closeConnection: true }));
+          request.resume();
+          return;
+        }
+
+        chunks.push(buffer);
+      } catch (error) {
+        rejectOnce(error);
       }
-
-      chunks.push(buffer);
     };
 
     const onEnd = () => {
-      const body = Buffer.concat(chunks).toString('utf8');
-      if (body.trim().length === 0) {
-        resolveOnce({});
-        return;
-      }
-
       try {
+        const body = Buffer.concat(chunks).toString('utf8');
+        if (body.trim().length === 0) {
+          resolveOnce({});
+          return;
+        }
+
         const parsed = JSON.parse(body);
         if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
           rejectOnce(new AppError('invalid_json', 'Request body must be a JSON object'));

@@ -273,4 +273,57 @@ describe('gifts and open loops', () => {
     });
     assert.equal(closedResults.results.some((content) => content.id === gift.id), false);
   });
+
+  it('embedding search ranks content by distance and walks cursor pages', async () => {
+    const owner = await h.seedOwner('gift-search-order', 'Gift Search Order Club');
+    const author = await h.seedCompedMember(owner.club.id, 'Search Order Author');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Search Order Viewer');
+
+    async function createGiftWithEmbedding(title: string, vector: string): Promise<string> {
+      const result = await h.apiOk(author.token, 'content.create', {
+        clubId: owner.club.id,
+        kind: 'gift',
+        title,
+        body: `I can help with ${title.toLowerCase()} in a concrete one-hour session.`,
+      });
+      const gift = (result.data as Record<string, unknown>).content as Record<string, unknown>;
+      const versionRows = await h.sql<{ id: string }>(
+        `select id
+         from current_content_versions
+         where content_id = $1`,
+        [gift.id as string],
+      );
+      await seedContentEmbedding(gift.id as string, versionRows[0].id, vector);
+      return gift.id as string;
+    }
+
+    const nearest = await createGiftWithEmbedding('Nearest architecture review', makeVector([1, 0, 0]));
+    const middle = await createGiftWithEmbedding('Middle architecture review', makeVector([0.8, 0.2, 0]));
+    const farthest = await createGiftWithEmbedding('Farthest architecture review', makeVector([0.1, 0.9, 0]));
+
+    const firstPage = await findContentViaEmbedding(h.pools.super, {
+      actorMemberId: viewer.id,
+      clubIds: [owner.club.id],
+      queryEmbedding: makeVector([1, 0, 0]),
+      kinds: ['gift'],
+      limit: 2,
+      cursor: null,
+    });
+    assert.deepEqual(firstPage.results.map((content) => content.id), [nearest, middle]);
+    assert.equal(firstPage.hasMore, true);
+    assert.ok(firstPage.nextCursor);
+    assert.ok(firstPage.results[0].score <= firstPage.results[1].score);
+
+    const [distance, contentId] = JSON.parse(Buffer.from(firstPage.nextCursor, 'base64url').toString('utf8')) as [string, string];
+    const secondPage = await findContentViaEmbedding(h.pools.super, {
+      actorMemberId: viewer.id,
+      clubIds: [owner.club.id],
+      queryEmbedding: makeVector([1, 0, 0]),
+      kinds: ['gift'],
+      limit: 2,
+      cursor: { distance, contentId },
+    });
+    assert.deepEqual(secondPage.results.map((content) => content.id), [farthest]);
+    assert.equal(secondPage.hasMore, false);
+  });
 });
