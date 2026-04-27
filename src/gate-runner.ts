@@ -4,16 +4,9 @@ import {
   gateVerdictToAppError,
   logMalformedGateVerdict,
 } from './gate-results.ts';
-import { logger } from './logger.ts';
+import { fireAndForgetLlmUsageLog } from './logger.ts';
 import { getLlmGateMaxOutputTokens } from './quotas.ts';
-import type { LogLlmUsageInput, Repository } from './repository.ts';
-
-function fireAndForgetLlmLog(repository: Repository, entry: LogLlmUsageInput): void {
-  if (!repository.logLlmUsage) return;
-  repository.logLlmUsage(entry).catch((err) => {
-    logger.error('llm_usage_log_failure', err, { actionName: entry.actionName });
-  });
-}
+import type { Repository } from './repository.ts';
 
 export async function runCreateGateCheck(input: {
   actionName: string;
@@ -33,7 +26,7 @@ export async function runCreateGateCheck(input: {
     verdict,
   });
 
-  fireAndForgetLlmLog(
+  fireAndForgetLlmUsageLog(
     input.repository,
     buildGateLlmLogEntry({
       actionName: input.actionName,

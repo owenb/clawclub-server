@@ -20,7 +20,6 @@
 import { AppError } from './errors.ts';
 import type {
   LogApiRequestInput,
-  LogLlmUsageInput,
   MembershipSummary,
   Repository,
 } from './repository.ts';
@@ -53,7 +52,7 @@ import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 import { estimateGateSpend } from './club-spend.ts';
 import { getLlmGateMaxOutputTokens } from './quotas.ts';
 import { QUOTA_ACTIONS } from './quota-metadata.ts';
-import { fireAndForgetRequestLog, logger } from './logger.ts';
+import { fireAndForgetLlmUsageLog, fireAndForgetRequestLog, logger } from './logger.ts';
 
 export type LlmGateFn = (artifact: NonApplicationArtifact, options?: { maxOutputTokens?: number }) => Promise<GateVerdict>;
 
@@ -219,13 +218,6 @@ function extractRequestedClubIdForGate(def: Pick<ActionDefinition, 'action'>, pa
     return null;
   }
   return extractRequestedClubId(payload);
-}
-
-function fireAndForgetLlmLog(repository: Repository, entry: LogLlmUsageInput): void {
-  if (!repository.logLlmUsage) return;
-  repository.logLlmUsage(entry).catch((err) => {
-    logger.error('llm_usage_log_failure', err, { actionName: entry.actionName });
-  });
 }
 
 async function safeReleaseClubSpendBudget(
@@ -413,7 +405,7 @@ async function runLlmGateFor(
       verdict,
     });
 
-    fireAndForgetLlmLog(
+    fireAndForgetLlmUsageLog(
       repository,
       buildGateLlmLogEntry({
         actionName: def.action,

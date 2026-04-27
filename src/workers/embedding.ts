@@ -21,7 +21,7 @@ import {
 import { buildProfileSourceText, buildContentSourceText, buildEventSourceText, computeSourceHash } from '../embedding-source.ts';
 import { AppError } from '../errors.ts';
 import { normalizeErrorCode } from '../llm-errors.ts';
-import { logger } from '../logger.ts';
+import { logger, safeLogError } from '../logger.ts';
 import { PACKAGE_VERSION } from '../version.ts';
 import {
   createPools,
@@ -447,7 +447,7 @@ function logEmbeddingSpend(
     `insert into ai_llm_usage_log (member_id, requested_club_id, action_name, artifact_kind, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code, feedback)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     [null, clubId, actionName, 'embedding_index', 'openai', model, gateStatus, skipReason, promptTokens, completionTokens, providerErrorCode, null],
-  ).catch(err => logger.error('embedding_spend_log_failure', err, { actionName }));
+  ).catch(err => safeLogError('embedding_spend_log_failure', err, { actionName }));
 }
 
 function isFatalEmbeddingProviderError(errorMsg: string): boolean {

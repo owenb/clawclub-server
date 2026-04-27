@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { logApiRequest } from '../../src/clubs/index.ts';
+import { fireAndForgetRequestLog } from '../../src/logger.ts';
 import { createRepository } from '../../src/postgres.ts';
 
 test('logApiRequest inserts member, action, and normalized IP value', async () => {
@@ -75,4 +76,33 @@ test('createRepository routes request logging through the dedicated request-log 
 
   assert.equal(requestLogQueryCount, 1);
   assert.equal(mainQueryCount, 0);
+});
+
+test('fireAndForgetRequestLog does not surface logger serialization failures', async () => {
+  const originalConsoleError = console.error;
+  let consoleErrorCalled = false;
+  console.error = () => {
+    consoleErrorCalled = true;
+    throw new Error('console unavailable');
+  };
+
+  const cyclicError = new Error('request log write failed') as Error & { cause?: unknown };
+  cyclicError.cause = cyclicError;
+
+  try {
+    fireAndForgetRequestLog({
+      async logApiRequest() {
+        throw cyclicError;
+      },
+    } as any, {
+      memberId: 'member-4',
+      actionName: 'content.list',
+      ipAddress: '203.0.113.44',
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(consoleErrorCalled, true);
+  } finally {
+    console.error = originalConsoleError;
+  }
 });
