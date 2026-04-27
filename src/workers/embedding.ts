@@ -500,7 +500,7 @@ function mergeEmbeddingEstimates(estimates: EmbeddingSpendEstimate[]): Embedding
     reservedOutputTokens: 0,
   }), {
     usageKind: CLUB_SPEND_USAGE_KINDS.embedding,
-    reservedMicroCents: 0,
+    reservedMicroCents: 0n,
     reservedInputTokensEstimate: 0,
     reservedOutputTokens: 0,
   });

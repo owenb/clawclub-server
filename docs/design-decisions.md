@@ -455,7 +455,7 @@ Per-action quotas:
 - `messages.send`: 50/day globally per member
 - `llm.outputTokens`: 10,000/day, 45,000/week, 180,000/month per `(club, member)`
 
-Each gated LLM call is additionally hard-capped at `gateMaxOutputTokens = 64` tokens. On top of per-member budgets, each club has an aggregate spend budget (`clubSpendBudget.dailyMaxCents`, default $1.00/day, weekly and monthly derived via the standard window multipliers). Spend is reserved before each gated call via `ai_club_spend_reservations` and reconciled after; exceeding the budget returns 429 `quota_exceeded` with club context. Expired pending spend reservations are swept to `released` with zero actual spend by the embedding worker so a failed release does not hold budget indefinitely.
+Each gated LLM call is additionally hard-capped at `gateMaxOutputTokens = 64` tokens. On top of per-member budgets, each club has an aggregate spend budget (`clubSpendBudget.dailyMaxCents`, default $1.00/day, weekly and monthly derived via the standard window multipliers). Spend is reserved before each gated call via `ai_club_spend_reservations` and reconciled after; exceeding the budget returns 429 `quota_exceeded` with club context. The database and spend engine keep micro-cent values as integers/`bigint`; the public v1 API serializes them as numbers only after a `Number.MAX_SAFE_INTEGER` guard. Expired pending spend reservations are swept to `released` with zero actual spend by the embedding worker so a failed release does not hold budget indefinitely.
 
 `quotas.getUsage` returns effective per-actor limits (after any multiplier) for every accessible club. Exceeding a quota returns 429 `quota_exceeded`.
 

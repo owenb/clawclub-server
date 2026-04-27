@@ -522,7 +522,7 @@ export type ClubsRepository = {
     usageKind: 'gate' | 'embedding';
     provider: string;
     model: string;
-    reservedMicroCents: number;
+    reservedMicroCents: bigint;
     reservedInputTokensEstimate: number;
     reservedOutputTokens: number;
   }): Promise<{ reservationId: string }>;

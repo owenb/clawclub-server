@@ -7,6 +7,7 @@ import {
   estimateEmbeddingSpend,
   estimateGateSpend,
   estimateTokensFromText,
+  getClubSpendBudgetStatus,
 } from '../../src/club-spend.ts';
 import {
   CLAWCLUB_EMBEDDING_INPUT_MICRO_CENTS_PER_TOKEN,
@@ -35,9 +36,9 @@ test('estimateGateSpend prices prompt and output with the fixed reservation marg
   const estimate = estimateGateSpend(artifact, 64);
   const promptAndUser = `${pickPrompt(artifact)}\n${renderArtifact(artifact)}`;
   const expectedInputTokens = Math.ceil(promptAndUser.length / 4);
-  const baseMicroCents = (expectedInputTokens * CLAWCLUB_OPENAI_INPUT_MICRO_CENTS_PER_TOKEN)
-    + (64 * CLAWCLUB_OPENAI_OUTPUT_MICRO_CENTS_PER_TOKEN);
-  const expectedReserved = Math.ceil((baseMicroCents * (10_000 + CLUB_SPEND_RESERVATION_MARGIN_BPS)) / 10_000);
+  const baseMicroCents = (BigInt(expectedInputTokens) * BigInt(CLAWCLUB_OPENAI_INPUT_MICRO_CENTS_PER_TOKEN))
+    + (64n * BigInt(CLAWCLUB_OPENAI_OUTPUT_MICRO_CENTS_PER_TOKEN));
+  const expectedReserved = ((baseMicroCents * BigInt(10_000 + CLUB_SPEND_RESERVATION_MARGIN_BPS)) + 9999n) / 10_000n;
 
   assert.equal(estimate.usageKind, 'gate');
   assert.equal(estimate.reservedInputTokensEstimate, expectedInputTokens);
@@ -49,8 +50,8 @@ test('embedding spend uses input tokens only', () => {
   const sourceText = 'Embedding source text';
   const estimate = estimateEmbeddingSpend(sourceText);
   const expectedTokens = Math.ceil(sourceText.length / 4);
-  const baseMicroCents = expectedTokens * CLAWCLUB_EMBEDDING_INPUT_MICRO_CENTS_PER_TOKEN;
-  const expectedReserved = Math.ceil((baseMicroCents * (10_000 + CLUB_SPEND_RESERVATION_MARGIN_BPS)) / 10_000);
+  const baseMicroCents = BigInt(expectedTokens) * BigInt(CLAWCLUB_EMBEDDING_INPUT_MICRO_CENTS_PER_TOKEN);
+  const expectedReserved = ((baseMicroCents * BigInt(10_000 + CLUB_SPEND_RESERVATION_MARGIN_BPS)) + 9999n) / 10_000n;
 
   assert.equal(estimate.usageKind, 'embedding');
   assert.equal(estimate.reservedInputTokensEstimate, expectedTokens);
@@ -61,10 +62,30 @@ test('embedding spend uses input tokens only', () => {
 test('actual spend pricing is exact and un-margined', () => {
   assert.equal(
     computeGateActualMicroCents({ promptTokens: 11, completionTokens: 7 }),
-    (11 * CLAWCLUB_OPENAI_INPUT_MICRO_CENTS_PER_TOKEN) + (7 * CLAWCLUB_OPENAI_OUTPUT_MICRO_CENTS_PER_TOKEN),
+    (11n * BigInt(CLAWCLUB_OPENAI_INPUT_MICRO_CENTS_PER_TOKEN)) + (7n * BigInt(CLAWCLUB_OPENAI_OUTPUT_MICRO_CENTS_PER_TOKEN)),
   );
   assert.equal(
     computeEmbeddingActualMicroCents({ embeddingTokens: 123 }),
-    123 * CLAWCLUB_EMBEDDING_INPUT_MICRO_CENTS_PER_TOKEN,
+    123n * BigInt(CLAWCLUB_EMBEDDING_INPUT_MICRO_CENTS_PER_TOKEN),
+  );
+});
+
+test('club spend status refuses to serialize unsafe micro-cent totals as numbers', async () => {
+  const unsafe = (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString();
+  const pool = {
+    async query() {
+      return {
+        rows: [{
+          used_day: unsafe,
+          used_week: '0',
+          used_month: '0',
+        }],
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => getClubSpendBudgetStatus(pool as never, 'club_unsafe'),
+    /safe integer boundary/,
   );
 });

@@ -28,7 +28,17 @@ export const CLUB_SPEND_USAGE_KINDS = {
 
 export type ClubSpendUsageKind = typeof CLUB_SPEND_USAGE_KINDS[keyof typeof CLUB_SPEND_USAGE_KINDS];
 
-type ClubSpendWindowCounts = Record<ClubSpendWindowName, number>;
+type ClubSpendWindowCounts = Record<ClubSpendWindowName, bigint>;
+type InternalClubSpendWindowUsage = {
+  window: ClubSpendWindowName;
+  maxMicroCents: bigint;
+  usedMicroCents: bigint;
+  remainingMicroCents: bigint;
+};
+type InternalClubSpendBudgetStatus = {
+  clubId: string;
+  windows: InternalClubSpendWindowUsage[];
+};
 
 export type ClubSpendWindowUsage = {
   window: ClubSpendWindowName;
@@ -55,14 +65,14 @@ export type ClubSpendBudgetReservation = {
 
 export type GateSpendEstimate = {
   usageKind: typeof CLUB_SPEND_USAGE_KINDS.gate;
-  reservedMicroCents: number;
+  reservedMicroCents: bigint;
   reservedInputTokensEstimate: number;
   reservedOutputTokens: number;
 };
 
 export type EmbeddingSpendEstimate = {
   usageKind: typeof CLUB_SPEND_USAGE_KINDS.embedding;
-  reservedMicroCents: number;
+  reservedMicroCents: bigint;
   reservedInputTokensEstimate: number;
   reservedOutputTokens: 0;
 };
@@ -73,17 +83,24 @@ export function estimateTokensFromText(text: string): number {
   return Math.ceil(text.length / CLUB_SPEND_ESTIMATED_CHARS_PER_TOKEN);
 }
 
-function applyReservationMargin(microCents: number): number {
-  return Math.ceil((microCents * (10_000 + CLUB_SPEND_RESERVATION_MARGIN_BPS)) / 10_000);
+function ceilDivide(value: bigint, divisor: bigint): bigint {
+  return value === 0n ? 0n : ((value - 1n) / divisor) + 1n;
 }
 
-function priceGateMicroCents(inputTokens: number, outputTokens: number): number {
-  return (inputTokens * CLAWCLUB_OPENAI_INPUT_MICRO_CENTS_PER_TOKEN)
-    + (outputTokens * CLAWCLUB_OPENAI_OUTPUT_MICRO_CENTS_PER_TOKEN);
+function applyReservationMargin(microCents: bigint): bigint {
+  return ceilDivide(
+    microCents * BigInt(10_000 + CLUB_SPEND_RESERVATION_MARGIN_BPS),
+    10_000n,
+  );
 }
 
-function priceEmbeddingMicroCents(inputTokens: number): number {
-  return inputTokens * CLAWCLUB_EMBEDDING_INPUT_MICRO_CENTS_PER_TOKEN;
+function priceGateMicroCents(inputTokens: number, outputTokens: number): bigint {
+  return (BigInt(inputTokens) * BigInt(CLAWCLUB_OPENAI_INPUT_MICRO_CENTS_PER_TOKEN))
+    + (BigInt(outputTokens) * BigInt(CLAWCLUB_OPENAI_OUTPUT_MICRO_CENTS_PER_TOKEN));
+}
+
+function priceEmbeddingMicroCents(inputTokens: number): bigint {
+  return BigInt(inputTokens) * BigInt(CLAWCLUB_EMBEDDING_INPUT_MICRO_CENTS_PER_TOKEN);
 }
 
 export function estimateGateSpend(artifact: GatedArtifact, maxOutputTokens: number): GateSpendEstimate {
@@ -111,13 +128,13 @@ export function estimateEmbeddingSpend(sourceText: string): EmbeddingSpendEstima
 export function computeGateActualMicroCents(input: {
   promptTokens: number;
   completionTokens: number;
-}): number {
+}): bigint {
   return priceGateMicroCents(Math.max(0, input.promptTokens), Math.max(0, input.completionTokens));
 }
 
 export function computeEmbeddingActualMicroCents(input: {
   embeddingTokens: number;
-}): number {
+}): bigint {
   return priceEmbeddingMicroCents(Math.max(0, input.embeddingTokens));
 }
 
@@ -131,16 +148,16 @@ export function getClubSpendBudgetPolicy(): ClubSpendBudgetPolicy {
   };
 }
 
-function getClubSpendWindowMaxesMicroCents(): Record<ClubSpendWindowName, number> {
+function getClubSpendWindowMaxesMicroCents(): Record<ClubSpendWindowName, bigint> {
   const policy = getClubSpendBudgetPolicy();
   return {
-    day: policy.dailyMaxCents * CLUB_SPEND_MICRO_CENTS_PER_CENT,
-    week: policy.weeklyMaxCents * CLUB_SPEND_MICRO_CENTS_PER_CENT,
-    month: policy.monthlyMaxCents * CLUB_SPEND_MICRO_CENTS_PER_CENT,
+    day: BigInt(policy.dailyMaxCents) * BigInt(CLUB_SPEND_MICRO_CENTS_PER_CENT),
+    week: BigInt(policy.weeklyMaxCents) * BigInt(CLUB_SPEND_MICRO_CENTS_PER_CENT),
+    month: BigInt(policy.monthlyMaxCents) * BigInt(CLUB_SPEND_MICRO_CENTS_PER_CENT),
   };
 }
 
-function buildClubSpendStatus(clubId: string, counts: ClubSpendWindowCounts): ClubSpendBudgetStatus {
+function buildInternalClubSpendStatus(clubId: string, counts: ClubSpendWindowCounts): InternalClubSpendBudgetStatus {
   const maxes = getClubSpendWindowMaxesMicroCents();
   return {
     clubId,
@@ -148,17 +165,36 @@ function buildClubSpendStatus(clubId: string, counts: ClubSpendWindowCounts): Cl
       window,
       maxMicroCents: maxes[window],
       usedMicroCents: counts[window],
-      remainingMicroCents: Math.max(0, maxes[window] - counts[window]),
+      remainingMicroCents: maxes[window] > counts[window] ? maxes[window] - counts[window] : 0n,
     })),
   };
 }
 
-function clubSpendExceededError(status: ClubSpendBudgetStatus, reserveMicroCents = 0): AppError {
+function microCentsToSafeNumber(value: bigint, label: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new AppError('invalid_data', `${label} exceeds the safe integer boundary for the current numeric API contract`);
+  }
+  return Number(value);
+}
+
+function serializeClubSpendStatus(status: InternalClubSpendBudgetStatus): ClubSpendBudgetStatus {
+  return {
+    clubId: status.clubId,
+    windows: status.windows.map((window) => ({
+      window: window.window,
+      maxMicroCents: microCentsToSafeNumber(window.maxMicroCents, `${window.window} maxMicroCents`),
+      usedMicroCents: microCentsToSafeNumber(window.usedMicroCents, `${window.window} usedMicroCents`),
+      remainingMicroCents: microCentsToSafeNumber(window.remainingMicroCents, `${window.window} remainingMicroCents`),
+    })),
+  };
+}
+
+function clubSpendExceededError(status: InternalClubSpendBudgetStatus, reserveMicroCents = 0n): AppError {
   const exceeded = status.windows.find((window) => window.usedMicroCents + reserveMicroCents > window.maxMicroCents);
   if (!exceeded) {
     return new AppError('quota_exceeded', 'Club AI spend budget exceeded');
   }
-  const maxCents = exceeded.maxMicroCents / CLUB_SPEND_MICRO_CENTS_PER_CENT;
+  const maxCents = exceeded.maxMicroCents / BigInt(CLUB_SPEND_MICRO_CENTS_PER_CENT);
   return new AppError(
     'quota_exceeded',
     `Rolling ${exceeded.window} club AI budget of ${maxCents} cents reached`,
@@ -205,14 +241,14 @@ async function countClubSpendUsage(client: DbClient, clubId: string): Promise<Cl
   );
   const row = result.rows[0];
   return {
-    day: Number(row?.used_day ?? '0'),
-    week: Number(row?.used_week ?? '0'),
-    month: Number(row?.used_month ?? '0'),
+    day: BigInt(row?.used_day ?? '0'),
+    week: BigInt(row?.used_week ?? '0'),
+    month: BigInt(row?.used_month ?? '0'),
   };
 }
 
 export async function getClubSpendBudgetStatus(pool: Pool, clubId: string): Promise<ClubSpendBudgetStatus> {
-  return buildClubSpendStatus(clubId, await countClubSpendUsage(pool, clubId));
+  return serializeClubSpendStatus(buildInternalClubSpendStatus(clubId, await countClubSpendUsage(pool, clubId)));
 }
 
 export async function reserveClubSpendBudget(pool: Pool, input: {
@@ -228,7 +264,7 @@ export async function reserveClubSpendBudget(pool: Pool, input: {
     await lockClubSpendScope(client, input.clubId);
 
     const counts = await countClubSpendUsage(client, input.clubId);
-    const status = buildClubSpendStatus(input.clubId, counts);
+    const status = buildInternalClubSpendStatus(input.clubId, counts);
     if (status.windows.some((window) => window.usedMicroCents + input.estimate.reservedMicroCents > window.maxMicroCents)) {
       throw clubSpendExceededError(status, input.estimate.reservedMicroCents);
     }
@@ -262,7 +298,7 @@ export async function reserveClubSpendBudget(pool: Pool, input: {
         input.usageKind,
         input.provider,
         input.model,
-        input.estimate.reservedMicroCents,
+        input.estimate.reservedMicroCents.toString(),
         input.estimate.reservedInputTokensEstimate,
         input.estimate.reservedOutputTokens,
         new Date(Date.now() + CLUB_SPEND_RESERVATION_TTL_MS).toISOString(),
@@ -271,11 +307,11 @@ export async function reserveClubSpendBudget(pool: Pool, input: {
 
     return {
       reservationId: inserted.rows[0]!.id,
-      budget: buildClubSpendStatus(input.clubId, {
+      budget: serializeClubSpendStatus(buildInternalClubSpendStatus(input.clubId, {
         day: counts.day + input.estimate.reservedMicroCents,
         week: counts.week + input.estimate.reservedMicroCents,
         month: counts.month + input.estimate.reservedMicroCents,
-      }),
+      })),
     };
   });
 }
@@ -314,7 +350,7 @@ export async function finalizeClubSpendBudget(pool: Pool, input:
       return;
     }
 
-    let actualMicroCents = 0;
+    let actualMicroCents = 0n;
     let actualPromptTokens: number | null = null;
     let actualCompletionTokens: number | null = null;
     let actualEmbeddingTokens: number | null = null;
@@ -342,17 +378,18 @@ export async function finalizeClubSpendBudget(pool: Pool, input:
       });
     }
 
-    if (actualMicroCents > Number(row.reserved_micro_cents)) {
+    const reservedMicroCents = BigInt(row.reserved_micro_cents);
+    if (actualMicroCents > reservedMicroCents) {
       logger.warn('club_spend_under_reserved', {
         reservationId: input.reservationId,
         clubId: row.club_id,
         usageKind: row.usage_kind,
-        reservedMicroCents: Number(row.reserved_micro_cents),
-        actualMicroCents,
+        reservedMicroCents: reservedMicroCents.toString(),
+        actualMicroCents: actualMicroCents.toString(),
       });
     }
 
-    const status = actualMicroCents > 0 ? 'finalized' : 'released';
+    const status = actualMicroCents > 0n ? 'finalized' : 'released';
     await client.query(
       `update ai_club_spend_reservations
        set status = $2,
@@ -366,7 +403,7 @@ export async function finalizeClubSpendBudget(pool: Pool, input:
       [
         input.reservationId,
         status,
-        actualMicroCents,
+        actualMicroCents.toString(),
         actualPromptTokens,
         actualCompletionTokens,
         actualEmbeddingTokens,
