@@ -20,6 +20,7 @@ import type {
   ClubProfile,
   ClubSpendWindow,
   ClubSummary,
+  DirectoryClubSummary,
   Content,
   ContentSearchResult,
   ContentThread,
@@ -82,6 +83,7 @@ export type {
   ClubProfile,
   ClubSpendWindow,
   ClubSummary,
+  DirectoryClubSummary,
   Content,
   ContentSearchResult,
   ContentThread,
@@ -124,6 +126,11 @@ export type {
 export type Paginated<T> = { results: T[]; hasMore: boolean; nextCursor: string | null };
 export { AppError } from './errors.ts';
 
+export type DirectorySnapshot = {
+  clubs: DirectoryClubSummary[];
+  members: IncludedMember[];
+};
+
 export const ACTION_REPOSITORY_METHODS = [
   'authenticateBearerToken',
   'registerAccount',
@@ -143,10 +150,12 @@ export const ACTION_REPOSITORY_METHODS = [
   'revokeInvitation',
   'findClubBySlug',
   'listClubs',
+  'loadDirectorySnapshot',
   'createClub',
   'archiveClub',
   'assignClubOwner',
   'updateClub',
+  'setClubDirectoryListed',
   'removeClub',
   'listRemovedClubs',
   'restoreRemovedClub',
@@ -723,10 +732,12 @@ export type Repository = {
     limit: number;
     cursor?: { archivedAt: string; name: string; clubId: string } | null;
   }): Promise<Paginated<ClubSummary>>;
+  loadDirectorySnapshot(): Promise<DirectorySnapshot>;
   createClub(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub(input: ArchiveClubInput): Promise<ClubSummary | null>;
   assignClubOwner(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
   updateClub(input: UpdateClubInput): Promise<ClubSummary | null>;
+  setClubDirectoryListed(input: { clubId: string; listed: boolean; allowArchived?: boolean }): Promise<ClubSummary | null>;
   removeClub(input: RemoveClubInput): Promise<{
     archiveId: string;
     clubId: string;

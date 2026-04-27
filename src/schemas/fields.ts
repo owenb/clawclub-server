@@ -284,7 +284,7 @@ export const wireHumanRequiredString = z.string().max(SMALL_TEXT_MAX_CHARS)
 export const parseHumanRequiredString = safeString.pipe(z.string().trim().min(1).max(SMALL_TEXT_MAX_CHARS));
 
 export function describePublicClubSlug(purpose: string): string {
-  return `${purpose} The caller supplies the clubSlug they already know (from an invitation or operator); there is no public directory to discover it from. Public and pre-membership surfaces take clubSlug, not clubId.`;
+  return `${purpose} The caller supplies a clubSlug from the opt-in public directory, an invitation, or operator/member guidance. Public and pre-membership surfaces take clubSlug, not clubId.`;
 }
 
 export function describeScopedClubId(purpose: string): string {

@@ -56,6 +56,26 @@ export const includedBundle = z.object({
   membersById: z.record(z.string(), includedMember),
 });
 
+// ── Directory ────────────────────────────────────────────
+
+export const directoryClubSummary = z.object({
+  clubId: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  ownerMemberId: z.string(),
+  memberCount: z.number().int().nonnegative(),
+  createdAt: timestampString,
+  archivedAt: timestampString.nullable(),
+});
+
+export const directoryPayload = z.object({
+  schemaVersion: z.literal(1),
+  directorySchemaHash: z.string(),
+  generatedAt: timestampString,
+  clubs: z.array(directoryClubSummary),
+  membersById: z.record(z.string(), includedMember),
+});
+
 // ── Membership ───────────────────────────────────────────
 
 export const membershipSummary = z.object({
@@ -435,6 +455,7 @@ export const clubSummary = z.object({
   admissionPolicy: z.string().nullable(),
   usesFreeAllowance: z.boolean(),
   memberCap: z.number().nullable(),
+  directoryListed: z.boolean(),
   archivedAt: timestampString.nullable(),
   owner: z.object({
     memberId: z.string(),
@@ -673,6 +694,8 @@ export type SharedClubRef = z.infer<typeof sharedClubRef>;
 export type MentionSpan = z.infer<typeof mentionSpan>;
 export type IncludedMember = z.infer<typeof includedMember>;
 export type IncludedBundle = z.infer<typeof includedBundle>;
+export type DirectoryClubSummary = z.infer<typeof directoryClubSummary>;
+export type DirectoryPayload = z.infer<typeof directoryPayload>;
 export type MembershipSummary = z.infer<typeof membershipSummary>;
 export type MembershipAdminSummary = z.infer<typeof membershipAdminSummary>;
 export type MembershipVouchSummary = z.infer<typeof vouchSummary>;

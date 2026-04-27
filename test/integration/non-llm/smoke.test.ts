@@ -137,8 +137,11 @@ describe('smoke', () => {
     assert.equal(names.includes('content.reopenLoop'), false, 'content.reopenLoop should be merged into content.setLoopState');
     assert.equal(names.includes('clubadmin.memberships.create'), false, 'clubadmin.memberships.create should be removed; only superadmin direct-add remains');
 
+    const directoryList = data.actions.find((a) => a.action === 'directory.list');
+    assert.ok(directoryList, 'directory.list should expose opt-in public club discovery');
+    assert.equal(directoryList.auth, 'none');
     const clubsListPublic = data.actions.find((a) => a.action === 'clubs.list');
-    assert.equal(clubsListPublic, undefined, 'clubs.list must not exist — clubs are private, only superadmin.clubs.list enumerates them');
+    assert.equal(clubsListPublic, undefined, 'clubs.list must not exist; use directory.list for opt-in public discovery');
 
     const clubsApply = data.actions.find((a) => a.action === 'clubs.apply');
     assert.ok(clubsApply?.notes?.some((note) => /existing bearer-authenticated account/i.test(note) || /Registration happens separately/i.test(note)), 'clubs.apply should document register-then-apply separation');
@@ -163,7 +166,7 @@ describe('smoke', () => {
     const clubsApplyProperties = clubsApplyInput?.properties as Record<string, Record<string, unknown>> | undefined;
     assert.ok(clubsApplyProperties?.clubSlug, 'clubs.apply should take clubSlug');
     assert.equal('clubId' in (clubsApplyProperties ?? {}), false, 'clubs.apply should not take clubId');
-    assert.match(String(clubsApplyProperties?.clubSlug?.description ?? ''), /no public directory/i, 'clubs.apply clubSlug description should make clear clubs are private');
+    assert.match(String(clubsApplyProperties?.clubSlug?.description ?? ''), /opt-in public directory/i, 'clubs.apply clubSlug description should point at public directory discovery');
     assert.match(String(clubsApplyProperties?.clientKey?.description ?? ''), /same payload replays the stored response/i, 'clubs.apply clientKey description should explain replay semantics');
     assert.match(
       String((((clubsApplyProperties?.draft as Record<string, unknown> | undefined)?.properties as Record<string, Record<string, unknown>> | undefined)?.socials?.description) ?? ''),
@@ -298,9 +301,14 @@ describe('smoke', () => {
     assert.equal(auth.type, 'bearer');
     assert.ok(Array.isArray(auth.unauthenticatedActions));
     assert.equal(
+      (auth.unauthenticatedActions as string[]).includes('directory.list'),
+      true,
+      'directory.list should be advertised as anonymous public discovery',
+    );
+    assert.equal(
       (auth.unauthenticatedActions as string[]).includes('clubs.list'),
       false,
-      'clubs.list must not be advertised — clubs are private, there is no public directory',
+      'clubs.list must not be advertised; use directory.list for opt-in public discovery',
     );
 
     // Request envelope

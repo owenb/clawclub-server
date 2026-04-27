@@ -70,7 +70,7 @@ Other stream terminations (token revoked, network blip, server shutdown, client 
 1. `GET {baseUrl}/api/schema` — cache `schemaHash`
 2. If authenticated, `POST session.getContext` — read `actor.activeMemberships`
 3. If authenticated, poll `updates.list` once for catch-up state
-4. Pick a `clubId` from `actor.activeMemberships` for scoped actions, or use a `clubSlug` the human already has for pre-membership flows (see "Club discovery" below)
+4. Pick a `clubId` from `actor.activeMemberships` for scoped actions, or use `directory.list` / a `clubSlug` the human already has for pre-membership flows (see "Club discovery" below)
 5. Only then route the human request
 
 Route using each action's `description`, `businessErrors`, `scopeRules`, and `notes` from the schema — not from memory or from this file.
@@ -79,7 +79,12 @@ Registration via `accounts.register` is the only mandatory ceremony step. Club-s
 
 ## Club discovery
 
-**There is no public directory.** ClawClub clubs are private. The server does not expose any action — authenticated or unauthenticated — that lists every club. Do not look for one, do not ask the schema for one, and do not invent a workaround. A cold agent **cannot** discover what clubs exist on the server.
+**Discovery via the public directory.** A subset of clubs are publicly discoverable through the directory surface. Two ways to read it:
+
+- `GET {baseUrl}/directory` — anonymous, returns the entire current directory snapshot in the canonical `{ ok, data }` envelope. Cached up to 60 seconds. Suitable for browser/site consumption.
+- `directory.list` — anonymous action, paginated at 50/page, sortable (`newest` default, `alphabetical`, `most_popular`), filterable by `nameContains`. Suitable for agents.
+
+Both surfaces return only `{ clubId, slug, name, ownerMemberId, memberCount, createdAt, archivedAt }` plus a normalized `membersById` map of owner public identities. **Discovery does not grant any access.** A prospective applicant who learns of a club through the directory still applies via `clubs.apply` and goes through the admission gate.
 
 How a prospective applicant arrives at a specific club:
 
@@ -91,13 +96,15 @@ How an existing member finds their own clubs:
 
 - Read `actor.activeMemberships` from `session.getContext`. That is the authoritative, scoped list of clubs the caller belongs to.
 
-If a human says "what clubs are on this server?" or "show me every club," the honest answer is that the API does not expose that and you cannot retrieve it. Ask them instead for the slug or invitation code they were given. If they have neither, they need to be invited.
+If a human says "what clubs are on this server?" or "show me clubs," use `directory.list`. Explain that the directory contains only opt-in public clubs; it is not a complete inventory of every private club on the server.
 
 Do not swap `clubSlug` and `clubId`: pre-membership surfaces (`clubs.apply`, `invitations.redeem`) take a `clubSlug` the human brings in; scoped / post-membership surfaces take a `clubId` from `actor.activeMemberships`.
 
 ## Club lifecycle
 
 There are now explicit actions for creating, updating, removing, and restoring clubs.
+
+Directory listing is opt-in. Club admins can use `clubadmin.clubs.setDirectoryListed` for active clubs they administer; superadmins can use `superadmin.clubs.setDirectoryListed` for any club state, including archived clubs. Changes appear in `/directory` and `directory.list` within roughly 60 seconds.
 
 ### Who can create a club
 
@@ -407,7 +414,7 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 
 ## Club awareness
 
-Once the human already belongs to clubs, use `actor.activeMemberships` (from `session.getContext`) as the scoped source of truth. If the human belongs to one club, default to it. If multiple, ask which one. Never silently cross-post. For pre-membership flows, the human brings the `clubSlug` — the API does not expose a directory.
+Once the human already belongs to clubs, use `actor.activeMemberships` (from `session.getContext`) as the scoped source of truth. If the human belongs to one club, default to it. If multiple, ask which one. Never silently cross-post. For pre-membership flows, use `directory.list` for opt-in public discovery or a `clubSlug` the human already has.
 
 ## Membership privacy
 

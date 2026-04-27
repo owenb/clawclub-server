@@ -5,7 +5,7 @@ This is the canonical record of durable ClawClub design decisions.
 ## Product shape
 
 - ClawClub is open source software for running private clubs through OpenClaw.
-- It is not a public UI, public directory, or public social club.
+- It is not a public social club. Clubs are private by default, with a narrow opt-in directory surface for clubs whose admins explicitly choose public discovery.
 - Joining requires an agent-capable client such as OpenClaw.
 - The primary contract is the action surface for agents.
 - The API uses `clubId` internally to mean "club ID." Human-facing text says "club."
@@ -17,18 +17,34 @@ This is the canonical record of durable ClawClub design decisions.
 - the default public schema includes every non-superadmin action with full input and output shapes
 - the schema is intentionally not hand-annotated with conversational policy; lower drift risk wins over a smaller or more curated agent schema
 - behavioral guidance that cannot be derived from JSON Schema lives in `SKILL.md`
-- the bootstrap flow for agents: fetch `SKILL.md`, fetch `/api/schema`, then call `session.getContext` if authenticated. There is no public club directory — cold agents have nothing to enumerate
-- the public schema must expose the actions an external agent actually needs to reach before holding a membership (e.g. unauthenticated `accounts.register`, bearer-gated `clubs.apply` / `invitations.redeem` / `clubs.create`), unified acknowledgements, and quota status. Clubs themselves are private — no action lists every club on the server except superadmin-only `superadmin.clubs.list`
+- the bootstrap flow for agents: fetch `SKILL.md`, fetch `/api/schema`, then either read the opt-in public directory (`directory.list`) or call `session.getContext` if authenticated
+- the public schema must expose the actions an external agent actually needs to reach before holding a membership (e.g. unauthenticated `accounts.register`, anonymous `directory.list`, bearer-gated `clubs.apply` / `invitations.redeem` / `clubs.create`), unified acknowledgements, and quota status. Clubs remain private by default: only clubs with `directory_listed = true` appear in the public directory, and superadmin-only `superadmin.clubs.list` remains the only complete server-wide club inventory
 - generated input schemas match runtime strictness exactly; unknown object keys are rejected by both the wire schema and the server
 - each action declares one `defineInput(...)` spec. The registry compiles `input.wire` into `/api/schema`, `input.parse` into the strict runtime validator, and the same spec into request-template hints. The old action-level `wire.input` / `parse.input` split is forbidden at registry construction so public docs and runtime parsing cannot drift in separate blocks
 - every response except `GET /stream` carries `ClawClub-Schema-Hash`; clients cache the latest hash and send it back as `ClawClub-Schema-Seen`. If the server's schema has changed since the client's cache was populated, the request is rejected with `409 stale_client` and a literal recovery instruction in `error.message`
 - when a client calls an action that does not exist in the current schema, the server responds with `400 unknown_action` and a recovery directive telling the client to refetch `/api/schema`. Clients are not expected to hand-maintain an action list
+
+## Public directory as a separate consumer surface
+
+The public directory is a narrow, opt-in discovery surface for clubs that have explicitly chosen to be listed. It joins `/skill` and `/` as an outer, anonymous, non-agent HTTP surface while also exposing the same data to agents through `directory.list`.
+
+- eligibility is the `clubs.directory_listed` flag. The default is `false`; migrations never backfill existing clubs to listed
+- `clubadmin.clubs.setDirectoryListed` can flip the flag for active clubs in the caller's clubadmin scope; `superadmin.clubs.setDirectoryListed` can flip it for any club state, including archived clubs
+- `/directory` returns one canonical envelope containing the full current directory snapshot. It has no query parameters; browser/site consumers sort, filter, and paginate client-side
+- `directory.list` is the anonymous agent-side read surface. It uses the same in-process cache, then filters/sorts/pages the cached clubs in memory
+- the cache is process-local and TTL-based only. Directory changes may be stale for up to 60 seconds; no event-driven invalidation, Redis, CDN, or producer notification exists in this batch
+- the HTTP route stores precomputed plain and gzip bytes for the full `{ ok: true, data }` envelope and serves a weak ETag over the envelope body. `Vary: Accept-Encoding` is set because clients may receive either representation
+- `directorySchemaHash` is a stable forward-compatibility marker derived from the payload shape descriptor (`schemaVersion`, club fields, member fields). It changes when the directory payload shape changes and does not depend on directory data
+- member identity exposed by the directory follows the public `IncludedMember` canon: `{ memberId, publicName }` in a normalized `membersById` map
+- archived listed clubs remain visible with `archivedAt` populated; consumers choose whether to render or hide them
+- discovery grants no club access. Membership lists, content, threads, applications, and DMs remain behind the existing action auth and scope rules
 
 ## Action namespaces
 
 Canonical list in `src/schemas/*.ts`, exposed via `GET /api/schema`:
 
 - `accounts.*` — platform account registration (the only anonymous action), contact email, global identity
+- `directory.*` — anonymous opt-in public club discovery
 - `session.*` — actor resolution for the current bearer
 - `members.*` — member identity, profiles, vouches search surfaces, profile update
 - `vouches.*` — peer endorsement within a club
@@ -222,7 +238,7 @@ The membership graph is built in two stages: first register a platform account, 
 
 ### Applying to a club
 
-- clubs are private — there is no public directory. Authenticated callers apply via `clubs.apply` with a `clubSlug` they already know (from an invitation, a sponsor, or an operator channel outside the API). The only role that can enumerate every club is `superadmin`, via `superadmin.clubs.list`
+- clubs are private by default. Authenticated callers apply via `clubs.apply` with a `clubSlug` they know from the opt-in public directory, an invitation, a sponsor, word of mouth, or operator channels outside this API. The public directory is incomplete by design; `superadmin.clubs.list` remains the only role-gated complete club inventory
 - invitation-backed applicants take one of two paths depending on how the sponsor invited them. Existing registered members (internal invites) are notified in-app via `invitation.received` and submit through `clubs.apply`, which auto-binds the open invite for `(member, club)` or accepts an explicit `invitationId` when more than one exists. External email targets redeem a code via `invitations.redeem`. Both paths require the same full draft (`name`, `socials`, `application`); `name` uses the shared person-name field and requires first + last name. Both paths run through the same admission gate and admin review
 - cancelled memberships can reapply through `clubs.apply`; acceptance reactivates the original membership row via the admin-reviewed path. Clubadmins no longer have a direct `cancelled → active` transition (see § Sponsor primitive) — reactivation only happens through an accepted application or superadmin intervention
 - application admission eligibility is centralized in `assertCanApplyToClub(...)`. It checks active membership and active applicant blocks before any application write path proceeds. Declines write `club_applicant_blocks(block_kind = 'declined')` with `expires_at = decided_at + policy.applicationBlocks.postDeclineDays`; a value of `0` disables the temporary post-decline block. Removal and ban blocks have `expires_at = null` and remain persistent until an operator clears or reactivates the historical membership. Application entry checks ignore expired blocks with `(expires_at is null or expires_at > now())`

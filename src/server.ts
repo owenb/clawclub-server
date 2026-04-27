@@ -23,6 +23,7 @@ import { assertStartupConfig } from './startup-check.ts';
 import { PACKAGE_VERSION } from './version.ts';
 import { fireAndForgetRequestLog, logger, STALE_CLIENT_LOG_ACTION } from './logger.ts';
 import { canonicalizeTimestampFields } from './timestamps.ts';
+import { createDirectoryCache, type DirectoryCache, type DirectoryCacheEntry } from './directory.ts';
 import {
   getBearerToken,
   readJsonBody,
@@ -277,6 +278,42 @@ function writeJson(
   });
 }
 
+function writeDirectoryResponse(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  entry: DirectoryCacheEntry,
+) {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json; charset=utf-8',
+    'x-content-type-options': 'nosniff',
+    'cache-control': 'public, max-age=60',
+    etag: entry.etag,
+    vary: 'Accept-Encoding',
+  };
+  const ifNoneMatch = request.headers['if-none-match'];
+  const requestedEtags = typeof ifNoneMatch === 'string'
+    ? ifNoneMatch.split(',').map((value) => value.trim())
+    : [];
+  if (requestedEtags.includes(entry.etag)) {
+    response.writeHead(304, headers);
+    response.end();
+    return;
+  }
+
+  const acceptsGzip = /\bgzip\b/.test(String(request.headers['accept-encoding'] ?? ''));
+  if (acceptsGzip) {
+    response.writeHead(200, {
+      ...headers,
+      'content-encoding': 'gzip',
+    });
+    response.end(entry.envelopeGzipped);
+    return;
+  }
+
+  response.writeHead(200, headers);
+  response.end(entry.envelopePlain);
+}
+
 function logNon2xx(
   request: http.IncomingMessage,
   statusCode: number,
@@ -467,6 +504,8 @@ function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
 
 export function createServer(options: {
   repository?: Repository;
+  directoryCache?: DirectoryCache;
+  directoryCacheTtlMs?: number;
   updatesNotifier?: MemberUpdateNotifier;
   llmGate?: LlmGateFn;
   streamScopeRefreshMs?: number;
@@ -519,11 +558,12 @@ export function createServer(options: {
   const dbUrl = process.env.DATABASE_URL;
   const updatesNotifier = options.updatesNotifier
     ?? (dbUrl ? createPostgresMemberUpdateNotifier(dbUrl) : createTimeoutOnlyNotifier());
+  const directoryCache = options.directoryCache ?? createDirectoryCache(repository, { ttlMs: options.directoryCacheTtlMs });
   const activeStreams = new Map<string, StreamHandle[]>();
   // TODO(#scale): replace this process-local guard before running multiple API instances.
   const registrationDiscoverRateLimits = new Map<string, RegistrationDiscoverRateLimitEntry>();
   const streamScopeRefreshMs = options.streamScopeRefreshMs ?? 60_000;
-  const dispatcher = buildDispatcher({ repository, llmGate: options.llmGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: options.llmGate, directoryCache });
   const sockets = new Set<net.Socket>();
 
   const server = http.createServer(async (request, response) => {
@@ -926,6 +966,20 @@ export function createServer(options: {
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/directory') {
+      try {
+        const entry = await directoryCache.get();
+        writeDirectoryResponse(request, response, entry);
+      } catch (error) {
+        logger.error('server_directory_error', error);
+        writeJson(request, response, 500, {
+          ok: false,
+          error: { code: 'internal_error', message: 'Unexpected server error' },
+        });
+      }
+      return;
+    }
+
     const normalizedPath = url.pathname.toLowerCase().replace(/\/+/g, '/');
 
     const skillCanonicalPath = normalizedPath.replace(/\/+$/, '');
@@ -969,7 +1023,7 @@ export function createServer(options: {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /, GET /skill (or /skill.md), GET /stream, GET /api/schema, and POST /api are supported',
+          message: 'Only GET /, GET /directory, GET /skill (or /skill.md), GET /stream, GET /api/schema, and POST /api are supported',
         },
       });
       return;

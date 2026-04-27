@@ -665,6 +665,60 @@ const clubadminClubsUpdate: ActionDefinition = {
   },
 };
 
+type ClubadminSetDirectoryListedInput = {
+  clubId: string;
+  listed: boolean;
+};
+
+const clubadminClubsSetDirectoryListed: ActionDefinition = {
+  action: 'clubadmin.clubs.setDirectoryListed',
+  domain: 'clubadmin',
+  description: 'Set whether an active club appears in the public directory. Changes appear within roughly 60 seconds because the public directory is TTL-cached.',
+  auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
+  safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Repeated calls with the same listed value leave the same directory-listed state.',
+  },
+  authorizationNote: 'Requires clubadmin role in the active club. Archived clubs must be toggled by superadmin.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
+  businessErrors: [
+    ...CLUBADMIN_AUTH_ERRORS,
+    {
+      code: 'club_not_found',
+      meaning: 'The requested club was not found.',
+      recovery: 'Refetch session.getContext and use a current clubId.',
+    },
+  ],
+  input: defineInput({
+    wire: z.object({
+      clubId: wireRequiredString.describe(describeScopedClubId('Club to list or hide.')),
+      listed: z.boolean().describe('Whether the club should appear in the public directory.'),
+    }),
+    parse: z.object({
+      clubId: parseRequiredString,
+      listed: z.boolean(),
+    }),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, listed } = input as ClubadminSetDirectoryListedInput;
+    ctx.requireClubAdmin(clubId);
+    const club = await ctx.repository.setClubDirectoryListed({ clubId, listed, allowArchived: false });
+    if (!club) {
+      throw new AppError('forbidden_scope', 'Archived clubs cannot toggle directory listing through clubadmin; use superadmin.');
+    }
+    return {
+      data: { club },
+      requestScope: requestScopeForClub(club.clubId),
+    };
+  },
+};
+
 // ── clubadmin.clubs.getStatistics ──────────────────────────────
 
 const clubadminClubsStats: ActionDefinition = {
@@ -772,6 +826,7 @@ registerActions([
   clubadminMembersGet, clubadminApplicationsGet,
   clubadminApplicationsDecide,
   clubadminClubsUpdate,
+  clubadminClubsSetDirectoryListed,
   clubadminClubsStats,
   clubadminContentRemove,
 ]);

@@ -9,6 +9,7 @@ import type {
   ClubForGate,
   ClubSummary,
   CreateClubInput,
+  DirectorySnapshot,
   Paginated,
   RemoveClubInput,
   RemovedClubSummary,
@@ -34,6 +35,7 @@ type ClubRow = {
   admission_policy: string | null;
   uses_free_allowance: boolean;
   member_cap: number | null;
+  directory_listed: boolean;
   archived_at: string | null;
   owner_member_id: string;
   owner_public_name: string;
@@ -154,6 +156,7 @@ function mapRow(row: ClubRow): ClubSummary {
     admissionPolicy: row.admission_policy,
     usesFreeAllowance: row.uses_free_allowance,
     memberCap: effectiveMemberCap(row.uses_free_allowance, row.member_cap),
+    directoryListed: row.directory_listed,
     archivedAt: row.archived_at,
     owner: {
       memberId: row.owner_member_id,
@@ -198,6 +201,7 @@ const SELECT_CLUB = `
     c.id as club_id, c.slug, c.name, c.summary, c.admission_policy,
     c.uses_free_allowance,
     c.member_cap,
+    c.directory_listed,
     c.archived_at::text as archived_at,
     cv.owner_member_id, m.public_name as owner_public_name,
     m.email as owner_email,
@@ -319,6 +323,76 @@ export async function listClubs(pool: Pool, input: {
     hasMore,
     nextCursor: hasMore && last ? encodeCursor([last.archived_at ?? '', last.name, last.club_id]) : null,
   };
+}
+
+export async function loadDirectorySnapshot(pool: Pool): Promise<DirectorySnapshot> {
+  const clubsResult = await pool.query<{
+    club_id: string;
+    slug: string;
+    name: string;
+    owner_member_id: string;
+    member_count: number;
+    created_at: string;
+    archived_at: string | null;
+  }>(
+    `select
+       c.id as club_id,
+       c.slug,
+       c.name,
+       c.owner_member_id,
+       count(*) filter (where m.status = 'active')::int as member_count,
+       c.created_at::text as created_at,
+       c.archived_at::text as archived_at
+     from clubs c
+     left join club_memberships m on m.club_id = c.id
+     where c.directory_listed = true
+     group by c.id
+     order by c.created_at desc, c.id desc`,
+  );
+  const ownerMemberIds = [...new Set(clubsResult.rows.map((row) => row.owner_member_id))];
+  const membersResult = ownerMemberIds.length > 0
+    ? await pool.query<{ member_id: string; public_name: string }>(
+      `select id as member_id, public_name
+       from members
+       where id = any($1::short_id[])
+       order by id asc`,
+      [ownerMemberIds],
+    )
+    : { rows: [] };
+
+  return {
+    clubs: clubsResult.rows.map((row) => ({
+      clubId: row.club_id,
+      slug: row.slug,
+      name: row.name,
+      ownerMemberId: row.owner_member_id,
+      memberCount: Number(row.member_count),
+      createdAt: row.created_at,
+      archivedAt: row.archived_at,
+    })),
+    members: membersResult.rows.map((row) => ({
+      memberId: row.member_id,
+      publicName: row.public_name,
+    })),
+  };
+}
+
+export async function setClubDirectoryListed(
+  pool: Pool,
+  input: { clubId: string; listed: boolean; allowArchived?: boolean },
+): Promise<ClubSummary | null> {
+  return withTransaction(pool, async (client) => {
+    const result = await client.query<{ id: string }>(
+      `update clubs
+          set directory_listed = $1
+        where id = $2
+          and ($3::boolean = true or archived_at is null)
+        returning id`,
+      [input.listed, input.clubId, input.allowArchived === true],
+    );
+    if (!result.rows[0]) return null;
+    return readClub(client, input.clubId);
+  });
 }
 
 export async function loadClubForGate(pool: Pool, input: { clubId: string }): Promise<ClubForGate | null> {

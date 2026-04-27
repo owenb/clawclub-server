@@ -1924,6 +1924,7 @@ CREATE TABLE public.clubs (
     archived_at timestamp with time zone,
     uses_free_allowance boolean DEFAULT false NOT NULL,
     member_cap integer,
+    directory_listed boolean DEFAULT false NOT NULL,
     CONSTRAINT clubs_admission_policy_length CHECK (((admission_policy IS NULL) OR ((char_length(admission_policy) >= 1) AND (char_length(admission_policy) <= 2000)))),
     CONSTRAINT clubs_currency_check CHECK ((membership_price_currency ~ '^[A-Z]{3}$'::text)),
     CONSTRAINT clubs_member_cap_check CHECK (((member_cap IS NULL) OR (member_cap >= 1))),
@@ -2731,7 +2732,7 @@ COPY public.club_versions (id, club_id, owner_member_id, name, summary, admissio
 -- Data for Name: clubs; Type: TABLE DATA; Schema: public; Owner: clawclub_app
 --
 
-COPY public.clubs (id, slug, name, summary, owner_member_id, admission_policy, membership_price_amount, membership_price_currency, created_at, archived_at, uses_free_allowance, member_cap) FROM stdin;
+COPY public.clubs (id, slug, name, summary, owner_member_id, admission_policy, membership_price_amount, membership_price_currency, created_at, archived_at, uses_free_allowance, member_cap, directory_listed) FROM stdin;
 \.
 
 
@@ -2999,6 +3000,7 @@ COPY public.schema_migrations (filename, applied_at) FROM stdin;
 023_dm_inbox_acknowledged_at.sql	2026-04-26 00:00:00+01
 024_admission_invariants.sql	2026-04-27 00:00:00+01
 025_dm_inbox_drop_acknowledged.sql	2026-04-27 00:01:00+01
+026_clubs_directory_listed.sql	2026-04-27 00:02:00+01
 \.
 
 
@@ -3781,6 +3783,13 @@ CREATE UNIQUE INDEX club_subscriptions_one_live_per_membership ON public.club_su
 --
 
 CREATE INDEX club_subscriptions_payer_status_idx ON public.club_subscriptions USING btree (payer_member_id, status);
+
+
+--
+-- Name: clubs_directory_listed_newest_idx; Type: INDEX; Schema: public; Owner: clawclub_app
+--
+
+CREATE INDEX clubs_directory_listed_newest_idx ON public.clubs USING btree (created_at DESC, id DESC) WHERE (directory_listed = true);
 
 
 --

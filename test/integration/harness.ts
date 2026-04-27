@@ -226,6 +226,7 @@ export class TestHarness {
   static async start(options: {
     llmGate?: LlmGateFn;
     streamScopeRefreshMs?: number;
+    directoryCacheTtlMs?: number;
     embeddingStub?: boolean;
     config?: AppConfig;
   } = {}): Promise<TestHarness> {
@@ -309,6 +310,7 @@ export class TestHarness {
       updatesNotifier,
       llmGate: options.llmGate,
       streamScopeRefreshMs: options.streamScopeRefreshMs,
+      directoryCacheTtlMs: options.directoryCacheTtlMs,
     });
     const port = await new Promise<number>((resolve) => {
       serverInstance.server.listen(0, () => {

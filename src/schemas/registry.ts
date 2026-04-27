@@ -17,6 +17,7 @@ import { requestScopeForClub, type Actor, type AuthenticatedActor, type RequestS
 import type { ResponseNotice, ResponseNotifications } from '../notifications.ts';
 import type { GateVerdict, NonApplicationArtifact } from '../gate.ts';
 import type { SupportedQuotaAction } from '../quota-metadata.ts';
+import type { DirectoryCache } from '../directory.ts';
 
 // ── Auth and safety types ────────────────────────────────
 
@@ -31,6 +32,7 @@ export type HandlerContext = {
   requestScope: RequestScope;
   sharedContext: ResponseNotifications;
   repository: Repository;
+  directoryCache: DirectoryCache;
 
   // Authorization helpers (pre-bound to actor)
   requireAccessibleClub: (clubId: string) => MembershipSummary;
@@ -50,6 +52,7 @@ export type HandlerContext = {
  */
 export type ColdHandlerContext = {
   repository: Repository;
+  directoryCache: DirectoryCache;
   clientIp?: string | null;
 };
 
@@ -59,6 +62,7 @@ export type OptionalHandlerContext = {
   requestScope: RequestScope;
   sharedContext: ResponseNotifications;
   repository: Repository;
+  directoryCache: DirectoryCache;
 
   getNotifications: () => Promise<{
     items: import('../repository.ts').NotificationItem[];

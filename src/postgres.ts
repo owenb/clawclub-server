@@ -769,6 +769,7 @@ export function createRepository(
         admission_policy: string | null;
         uses_free_allowance: boolean;
         member_cap: number | null;
+        directory_listed: boolean;
         archived_at: string | null;
         owner_member_id: string;
         owner_public_name: string;
@@ -786,6 +787,7 @@ export function createRepository(
            cv.admission_policy,
            c.uses_free_allowance,
            c.member_cap,
+           c.directory_listed,
            c.archived_at::text as archived_at,
            cv.owner_member_id,
            owner_member.public_name as owner_public_name,
@@ -854,6 +856,7 @@ export function createRepository(
       memberCap: club.uses_free_allowance
         ? getConfig().policy.clubs.freeClubMemberCap
         : club.member_cap,
+      directoryListed: club.directory_listed,
       archivedAt: club.archived_at,
       owner: {
         memberId: club.owner_member_id,
@@ -942,10 +945,12 @@ export function createRepository(
     // ── Clubs ──────────────────────────────────────────────
     findClubBySlug: (input) => identity.findClubBySlug(input),
     listClubs: (input) => identity.listClubs(input),
+    loadDirectorySnapshot: () => identity.loadDirectorySnapshot(),
     createClub: (input) => identity.createClub(input),
     archiveClub: (input) => identity.archiveClub(input),
     assignClubOwner: (input) => identity.assignClubOwner(input),
     updateClub: (input) => identity.updateClub(input),
+    setClubDirectoryListed: (input) => identity.setClubDirectoryListed(input),
     removeClub: (input) => identity.removeClub(input),
     listRemovedClubs: (input) => identity.listRemovedClubs(input),
     restoreRemovedClub: (input) => identity.restoreRemovedClub(input),

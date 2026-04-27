@@ -2378,9 +2378,9 @@
       ]
     },
     {
-      "action": "clubadmin.clubs.update",
+      "action": "clubadmin.clubs.setDirectoryListed",
       "auth": "clubadmin",
-      "authorizationNote": "Requires clubadmin auth on the surface, then narrows to the club owner or a superadmin before mutation.",
+      "authorizationNote": "Requires clubadmin role in the active club. Archived clubs must be toggled by superadmin.",
       "businessErrors": [
         {
           "code": "forbidden_scope",
@@ -2393,47 +2393,29 @@
           "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         },
         {
-          "code": "club_archived",
-          "meaning": "The club is archived and cannot be updated.",
-          "recovery": "Restore the club before changing its text."
+          "code": "club_not_found",
+          "meaning": "The requested club was not found.",
+          "recovery": "Refetch session.getContext and use a current clubId."
         }
       ],
-      "description": "Update club text as the club owner or a superadmin.",
+      "description": "Set whether an active club appears in the public directory. Changes appear within roughly 60 seconds because the public directory is TTL-cached.",
       "domain": "clubadmin",
       "input": {
         "additionalProperties": false,
         "properties": {
-          "admissionPolicy": {
-            "description": "New admission policy.",
-            "maxLength": 2000,
-            "nullable": true,
-            "type": "string"
-          },
-          "clientKey": {
-            "description": "Idempotency key for this club update. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
-            "maxLength": 100000,
-            "type": "string"
-          },
           "clubId": {
-            "description": "Club to update. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
+            "description": "Club to list or hide. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
             "maxLength": 100000,
             "type": "string"
           },
-          "name": {
-            "description": "New club name.",
-            "maxLength": 2000,
-            "type": "string"
-          },
-          "summary": {
-            "description": "New summary.",
-            "maxLength": 2000,
-            "nullable": true,
-            "type": "string"
+          "listed": {
+            "description": "Whether the club should appear in the public directory.",
+            "type": "boolean"
           }
         },
         "required": [
           "clubId",
-          "clientKey"
+          "listed"
         ],
         "type": "object"
       },
@@ -2454,6 +2436,9 @@
               },
               "clubId": {
                 "type": "string"
+              },
+              "directoryListed": {
+                "type": "boolean"
               },
               "memberCap": {
                 "nullable": true,
@@ -2550,6 +2535,201 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
+              "archivedAt",
+              "owner",
+              "version"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "club"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
+      ]
+    },
+    {
+      "action": "clubadmin.clubs.update",
+      "auth": "clubadmin",
+      "authorizationNote": "Requires clubadmin auth on the surface, then narrows to the club owner or a superadmin before mutation.",
+      "businessErrors": [
+        {
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
+          "meaning": "Caller is not a clubadmin in the requested club.",
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
+        },
+        {
+          "code": "club_archived",
+          "meaning": "The club is archived and cannot be updated.",
+          "recovery": "Restore the club before changing its text."
+        }
+      ],
+      "description": "Update club text as the club owner or a superadmin.",
+      "domain": "clubadmin",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "admissionPolicy": {
+            "description": "New admission policy.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "clientKey": {
+            "description": "Idempotency key for this club update. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
+          "clubId": {
+            "description": "Club to update. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
+            "maxLength": 100000,
+            "type": "string"
+          },
+          "name": {
+            "description": "New club name.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "summary": {
+            "description": "New summary.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId",
+          "clientKey"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "club": {
+            "additionalProperties": false,
+            "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
+              "archivedAt": {
+                "clawclubType": "timestamp",
+                "nullable": true,
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "directoryListed": {
+                "type": "boolean"
+              },
+              "memberCap": {
+                "nullable": true,
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "email"
+                ],
+                "type": "object"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              },
+              "usesFreeAllowance": {
+                "type": "boolean"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "clawclubType": "timestamp",
+                    "type": "string"
+                  },
+                  "createdByMember": {
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "publicName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "publicName"
+                    ],
+                    "type": "object"
+                  },
+                  "no": {
+                    "type": "number"
+                  },
+                  "reason": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "archived"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "no",
+                  "status",
+                  "reason",
+                  "createdAt",
+                  "createdByMember"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "clubId",
+              "slug",
+              "name",
+              "summary",
+              "admissionPolicy",
+              "usesFreeAllowance",
+              "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version"
@@ -5855,7 +6035,7 @@
             "type": "string"
           },
           "clubSlug": {
-            "description": "Club to apply to. The caller supplies the clubSlug they already know (from an invitation or operator); there is no public directory to discover it from. Public and pre-membership surfaces take clubSlug, not clubId.",
+            "description": "Club to apply to. The caller supplies a clubSlug from the opt-in public directory, an invitation, or operator/member guidance. Public and pre-membership surfaces take clubSlug, not clubId.",
             "maxLength": 100000,
             "type": "string"
           },
@@ -6392,6 +6572,9 @@
               "clubId": {
                 "type": "string"
               },
+              "directoryListed": {
+                "type": "boolean"
+              },
               "memberCap": {
                 "nullable": true,
                 "type": "number"
@@ -6487,6 +6670,7 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version"
@@ -10102,6 +10286,147 @@
         "type": "object"
       },
       "safety": "mutating"
+    },
+    {
+      "action": "directory.list",
+      "auth": "none",
+      "description": "Discover publicly listed clubs. Directory cursors are tied to the current 60-second cache snapshot; restart listing if a cursor expires.",
+      "domain": "directory",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "nameContains": {
+            "description": "Case-insensitive substring filter on club name.",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sort": {
+            "description": "Sort order. Defaults to newest.",
+            "enum": [
+              "newest",
+              "alphabetical",
+              "most_popular"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notes": [
+        "This action is anonymous and returns only the opt-in public directory shape. Discovery does not grant access to club content, members, applications, or DMs.",
+        "Directory cursors are valid only for the current cached directory snapshot and for the same sort/filter inputs."
+      ],
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "directorySchemaHash": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "clawclubType": "timestamp",
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "membersById": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "memberId": {
+                  "type": "string"
+                },
+                "publicName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "memberId",
+                "publicName"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "archivedAt": {
+                  "clawclubType": "timestamp",
+                  "nullable": true,
+                  "type": "string"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "clawclubType": "timestamp",
+                  "type": "string"
+                },
+                "memberCount": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ownerMemberId": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "clubId",
+                "slug",
+                "name",
+                "ownerMemberId",
+                "memberCount",
+                "createdAt",
+                "archivedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schemaVersion": {
+            "enum": [
+              1
+            ],
+            "type": "number"
+          }
+        },
+        "required": [
+          "results",
+          "hasMore",
+          "nextCursor",
+          "schemaVersion",
+          "directorySchemaHash",
+          "generatedAt",
+          "membersById"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
     },
     {
       "action": "events.list",
@@ -14366,6 +14691,9 @@
               "clubId": {
                 "type": "string"
               },
+              "directoryListed": {
+                "type": "boolean"
+              },
               "memberCap": {
                 "nullable": true,
                 "type": "number"
@@ -14461,6 +14789,7 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version"
@@ -14531,6 +14860,9 @@
               "clubId": {
                 "type": "string"
               },
+              "directoryListed": {
+                "type": "boolean"
+              },
               "memberCap": {
                 "nullable": true,
                 "type": "number"
@@ -14626,6 +14958,7 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version"
@@ -14718,6 +15051,9 @@
               "clubId": {
                 "type": "string"
               },
+              "directoryListed": {
+                "type": "boolean"
+              },
               "memberCap": {
                 "nullable": true,
                 "type": "number"
@@ -14813,6 +15149,7 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version"
@@ -14924,6 +15261,9 @@
               },
               "contentCount": {
                 "type": "number"
+              },
+              "directoryListed": {
+                "type": "boolean"
               },
               "llmOutputTokens": {
                 "additionalProperties": false,
@@ -15090,6 +15430,7 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version",
@@ -15163,6 +15504,9 @@
                 },
                 "clubId": {
                   "type": "string"
+                },
+                "directoryListed": {
+                  "type": "boolean"
                 },
                 "memberCap": {
                   "nullable": true,
@@ -15259,6 +15603,7 @@
                 "admissionPolicy",
                 "usesFreeAllowance",
                 "memberCap",
+                "directoryListed",
                 "archivedAt",
                 "owner",
                 "version"
@@ -15383,62 +15728,33 @@
       "safety": "mutating"
     },
     {
-      "action": "superadmin.clubs.update",
+      "action": "superadmin.clubs.setDirectoryListed",
       "auth": "superadmin",
       "businessErrors": [
         {
-          "code": "club_archived",
-          "meaning": "The club is archived and cannot be updated.",
-          "recovery": "Restore the club before changing it."
+          "code": "club_not_found",
+          "meaning": "The requested club was not found.",
+          "recovery": "Use superadmin.clubs.list or superadmin.clubs.get to confirm the clubId."
         }
       ],
-      "description": "Update mutable fields on a club (superadmin only).",
+      "description": "Set whether any club, including an archived club, appears in the public directory. Changes appear within roughly 60 seconds because the public directory is TTL-cached.",
       "domain": "superadmin",
       "input": {
         "additionalProperties": false,
         "properties": {
-          "admissionPolicy": {
-            "description": "Admission policy text (1-2000 chars)",
-            "maxLength": 2000,
-            "nullable": true,
-            "type": "string"
-          },
-          "clientKey": {
-            "description": "Idempotency key for this club update.",
-            "maxLength": 100000,
-            "type": "string"
-          },
           "clubId": {
-            "description": "Club to update. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
+            "description": "Club to list or hide. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
             "maxLength": 100000,
             "type": "string"
           },
-          "memberCap": {
-            "description": "Explicit member cap. Required when usesFreeAllowance is false.",
-            "maximum": 9007199254740991,
-            "minimum": 1,
-            "nullable": true,
-            "type": "integer"
-          },
-          "name": {
-            "description": "New club name (cannot be empty if provided)",
-            "maxLength": 2000,
-            "type": "string"
-          },
-          "summary": {
-            "description": "Club summary",
-            "maxLength": 2000,
-            "nullable": true,
-            "type": "string"
-          },
-          "usesFreeAllowance": {
-            "description": "Set true to put the club back onto the free allowance; false to move it out.",
+          "listed": {
+            "description": "Whether the club should appear in the public directory.",
             "type": "boolean"
           }
         },
         "required": [
-          "clientKey",
-          "clubId"
+          "clubId",
+          "listed"
         ],
         "type": "object"
       },
@@ -15459,6 +15775,9 @@
               },
               "clubId": {
                 "type": "string"
+              },
+              "directoryListed": {
+                "type": "boolean"
               },
               "memberCap": {
                 "nullable": true,
@@ -15555,6 +15874,198 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
+              "archivedAt",
+              "owner",
+              "version"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "club"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "superadmin.clubs.update",
+      "auth": "superadmin",
+      "businessErrors": [
+        {
+          "code": "club_archived",
+          "meaning": "The club is archived and cannot be updated.",
+          "recovery": "Restore the club before changing it."
+        }
+      ],
+      "description": "Update mutable fields on a club (superadmin only).",
+      "domain": "superadmin",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "admissionPolicy": {
+            "description": "Admission policy text (1-2000 chars)",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "clientKey": {
+            "description": "Idempotency key for this club update.",
+            "maxLength": 100000,
+            "type": "string"
+          },
+          "clubId": {
+            "description": "Club to update. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
+            "maxLength": 100000,
+            "type": "string"
+          },
+          "memberCap": {
+            "description": "Explicit member cap. Required when usesFreeAllowance is false.",
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "name": {
+            "description": "New club name (cannot be empty if provided)",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "summary": {
+            "description": "Club summary",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "usesFreeAllowance": {
+            "description": "Set true to put the club back onto the free allowance; false to move it out.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clientKey",
+          "clubId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "club": {
+            "additionalProperties": false,
+            "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
+              "archivedAt": {
+                "clawclubType": "timestamp",
+                "nullable": true,
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "directoryListed": {
+                "type": "boolean"
+              },
+              "memberCap": {
+                "nullable": true,
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "email"
+                ],
+                "type": "object"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              },
+              "usesFreeAllowance": {
+                "type": "boolean"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "clawclubType": "timestamp",
+                    "type": "string"
+                  },
+                  "createdByMember": {
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "publicName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "publicName"
+                    ],
+                    "type": "object"
+                  },
+                  "no": {
+                    "type": "number"
+                  },
+                  "reason": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "archived"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "no",
+                  "status",
+                  "reason",
+                  "createdAt",
+                  "createdByMember"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "clubId",
+              "slug",
+              "name",
+              "summary",
+              "admissionPolicy",
+              "usesFreeAllowance",
+              "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version"
@@ -17861,6 +18372,9 @@
               "clubId": {
                 "type": "string"
               },
+              "directoryListed": {
+                "type": "boolean"
+              },
               "memberCap": {
                 "nullable": true,
                 "type": "number"
@@ -17956,6 +18470,7 @@
               "admissionPolicy",
               "usesFreeAllowance",
               "memberCap",
+              "directoryListed",
               "archivedAt",
               "owner",
               "version"
@@ -19137,7 +19652,8 @@
       "headerFormat": "Authorization: Bearer clawclub_...",
       "type": "bearer",
       "unauthenticatedActions": [
-        "accounts.register"
+        "accounts.register",
+        "directory.list"
       ]
     },
     "endpoints": {
@@ -20062,5 +20578,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "664052434b518710"
+  "schemaHash": "23c1003ef0758072"
 }

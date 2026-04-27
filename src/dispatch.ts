@@ -53,11 +53,13 @@ import { estimateGateSpend } from './club-spend.ts';
 import { getLlmGateMaxOutputTokens } from './quotas.ts';
 import { QUOTA_ACTIONS } from './quota-metadata.ts';
 import { fireAndForgetLlmUsageLog, fireAndForgetRequestLog, logger } from './logger.ts';
+import { createDirectoryCache, type DirectoryCache } from './directory.ts';
 
 export type LlmGateFn = (artifact: NonApplicationArtifact, options?: { maxOutputTokens?: number }) => Promise<GateVerdict>;
 
 // ── Import all schema modules to trigger registration ────
 import './schemas/session.ts';
+import './schemas/directory.ts';
 import './schemas/accounts.ts';
 import './schemas/clubs.ts';
 import './schemas/invitations.ts';
@@ -572,8 +574,13 @@ export type DispatchInput = {
   stampAuthenticatedMemberId?: (memberId: string) => void;
 };
 
-export function buildDispatcher({ repository, llmGate }: { repository: Repository; llmGate?: LlmGateFn }) {
+export function buildDispatcher({ repository, llmGate, directoryCache }: {
+  repository: Repository;
+  llmGate?: LlmGateFn;
+  directoryCache?: DirectoryCache;
+}) {
   const runLlmGate = llmGate ?? (defaultCheckLlmGate as LlmGateFn);
+  const resolvedDirectoryCache = directoryCache ?? createDirectoryCache(repository);
   return {
     async dispatch(input: DispatchInput) {
       // 1. Identify action
@@ -611,7 +618,7 @@ export function buildDispatcher({ repository, llmGate }: { repository: Repositor
 
       // 3. Branch on auth
       if (def.auth === 'none') {
-        return await dispatchCold(def, actionName, payload, input.clientIp ?? null, repository, runLlmGate);
+        return await dispatchCold(def, actionName, payload, input.clientIp ?? null, repository, resolvedDirectoryCache, runLlmGate);
       }
       if (def.auth === 'optional_member') {
         return await dispatchOptionalMember(
@@ -620,6 +627,7 @@ export function buildDispatcher({ repository, llmGate }: { repository: Repositor
           payload,
           input.bearerToken,
           repository,
+          resolvedDirectoryCache,
           runLlmGate,
           input.stampAuthenticatedMemberId,
         );
@@ -632,6 +640,7 @@ export function buildDispatcher({ repository, llmGate }: { repository: Repositor
         input.bearerToken,
         input.clientIp ?? null,
         repository,
+        resolvedDirectoryCache,
         runLlmGate,
         input.stampAuthenticatedMemberId,
       );
@@ -645,6 +654,7 @@ async function dispatchCold(
   payload: Record<string, unknown>,
   clientIp: string | null,
   repository: Repository,
+  directoryCache: DirectoryCache,
   runLlmGate: LlmGateFn,
 ) {
 
@@ -666,7 +676,7 @@ async function dispatchCold(
       throw new AppError('not_implemented', `Action ${actionName} has no cold handler`);
     }
 
-    const ctx: ColdHandlerContext = { repository, clientIp };
+    const ctx: ColdHandlerContext = { repository, directoryCache, clientIp };
     const result = await def.handleCold(parsedInput, ctx);
     return assembleUnauthenticatedResponse(actionName, result, notices);
   });
@@ -678,6 +688,7 @@ async function dispatchOptionalMember(
   payload: Record<string, unknown>,
   bearerToken: string | null,
   repository: Repository,
+  directoryCache: DirectoryCache,
   runLlmGate: LlmGateFn,
   stampAuthenticatedMemberId?: (memberId: string) => void,
 ) {
@@ -732,6 +743,7 @@ async function dispatchOptionalMember(
         requestScope: defaultRequestScope,
         sharedContext,
         repository,
+        directoryCache,
         getNotifications: async () => {
           if (actor.kind !== 'authenticated') return { items: [], nextCursor: null };
           if (!notificationsMemo) {
@@ -758,6 +770,7 @@ async function dispatchAuthenticated(
   bearerToken: string | null,
   clientIp: string | null,
   repository: Repository,
+  directoryCache: DirectoryCache,
   runLlmGate: LlmGateFn,
   stampAuthenticatedMemberId?: (memberId: string) => void,
 ) {
@@ -879,6 +892,7 @@ async function dispatchAuthenticated(
       requestScope: defaultRequestScope,
       sharedContext,
       repository,
+      directoryCache,
       requireAccessibleClub,
       requireClubAdmin,
       requireClubOwner,

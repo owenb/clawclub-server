@@ -11,6 +11,7 @@ import type {
   CreateClubInput,
   CreateMembershipInput,
   CreatedBearerToken,
+  DirectorySnapshot,
   ArchiveClubInput,
   AssignClubOwnerInput,
   ClubProfileFields,
@@ -130,10 +131,12 @@ export type IdentityRepository = {
     limit: number;
     cursor?: { archivedAt: string; name: string; clubId: string } | null;
   }): Promise<{ results: ClubSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  loadDirectorySnapshot(): Promise<DirectorySnapshot>;
   createClub(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub(input: ArchiveClubInput): Promise<ClubSummary | null>;
   assignClubOwner(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
   updateClub(input: UpdateClubInput): Promise<ClubSummary | null>;
+  setClubDirectoryListed(input: { clubId: string; listed: boolean; allowArchived?: boolean }): Promise<ClubSummary | null>;
   removeClub(input: import('../repository.ts').RemoveClubInput): Promise<{
     archiveId: string;
     clubId: string;
@@ -193,10 +196,12 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     // Clubs
     findClubBySlug: ({ slug }) => clubs.findClubBySlug(pool, slug),
     listClubs: ({ includeArchived, limit, cursor }) => clubs.listClubs(pool, { includeArchived, limit, cursor }),
+    loadDirectorySnapshot: () => clubs.loadDirectorySnapshot(pool),
     createClub: (input) => clubs.createClub(pool, input),
     archiveClub: (input) => clubs.archiveClub(pool, input),
     assignClubOwner: (input) => clubs.assignClubOwner(pool, input),
     updateClub: (input) => clubs.updateClub(pool, input),
+    setClubDirectoryListed: (input) => clubs.setClubDirectoryListed(pool, input),
     removeClub: (input) => clubs.removeClub(pool, input),
     listRemovedClubs: ({ limit, cursor, clubSlug }) => clubs.listRemovedClubs(pool, { limit, cursor, clubSlug }),
     restoreRemovedClub: (input) => clubs.restoreRemovedClub(pool, input),

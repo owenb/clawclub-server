@@ -643,6 +643,11 @@ type ClubsUpdateInput = {
   memberCap?: number | null;
 };
 
+type SuperadminSetDirectoryListedInput = {
+  clubId: string;
+  listed: boolean;
+};
+
 const superadminClubsUpdate: ActionDefinition = {
   action: 'superadmin.clubs.update',
   domain: 'superadmin',
@@ -744,6 +749,49 @@ const superadminClubsUpdate: ActionDefinition = {
       throw new AppError('club_not_found', 'Club not found');
     }
 
+    return clubScopedResult(club, { club });
+  },
+};
+
+const superadminClubsSetDirectoryListed: ActionDefinition = {
+  action: 'superadmin.clubs.setDirectoryListed',
+  domain: 'superadmin',
+  description: 'Set whether any club, including an archived club, appears in the public directory. Changes appear within roughly 60 seconds because the public directory is TTL-cached.',
+  auth: 'superadmin',
+  scope: { strategy: 'handler' },
+  safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Repeated calls with the same listed value leave the same directory-listed state.',
+  },
+  businessErrors: [
+    {
+      code: 'club_not_found',
+      meaning: 'The requested club was not found.',
+      recovery: 'Use superadmin.clubs.list or superadmin.clubs.get to confirm the clubId.',
+    },
+  ],
+  input: defineInput({
+    wire: z.object({
+      clubId: wireRequiredString.describe(describeScopedClubId('Club to list or hide.')),
+      listed: z.boolean().describe('Whether the club should appear in the public directory.'),
+    }),
+    parse: z.object({
+      clubId: parseRequiredString,
+      listed: z.boolean(),
+    }),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    const { clubId, listed } = input as SuperadminSetDirectoryListedInput;
+    const club = await ctx.repository.setClubDirectoryListed({ clubId, listed, allowArchived: true });
+    if (!club) {
+      throw new AppError('club_not_found', 'Club not found.');
+    }
     return clubScopedResult(club, { club });
   },
 };
@@ -1624,6 +1672,7 @@ registerActions([
   superadminMembersCreate,
   superadminDiagnosticsHealth, superadminClubsList, superadminClubsGet, superadminClubsCreate,
   superadminClubsArchive, superadminClubsAssignOwner, superadminClubsUpdate,
+  superadminClubsSetDirectoryListed,
   superadminClubsRemove, superadminRemovedClubsList, superadminRemovedClubsRestore,
   superadminMembershipsCreate,
   superadminContentList,
