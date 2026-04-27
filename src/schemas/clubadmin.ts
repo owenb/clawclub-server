@@ -690,6 +690,11 @@ const clubadminClubsSetDirectoryListed: ActionDefinition = {
       meaning: 'The requested club was not found.',
       recovery: 'Refetch session.getContext and use a current clubId.',
     },
+    {
+      code: 'club_archived',
+      meaning: 'The club is archived and cannot be listed through the clubadmin surface.',
+      recovery: 'Use superadmin.clubs.setDirectoryListed for archived clubs.',
+    },
   ],
   input: defineInput({
     wire: z.object({
@@ -710,7 +715,7 @@ const clubadminClubsSetDirectoryListed: ActionDefinition = {
     ctx.requireClubAdmin(clubId);
     const club = await ctx.repository.setClubDirectoryListed({ clubId, listed, allowArchived: false });
     if (!club) {
-      throw new AppError('forbidden_scope', 'Archived clubs cannot toggle directory listing through clubadmin; use superadmin.');
+      throw new AppError('club_not_found', 'Club not found.');
     }
     return {
       data: { club },

@@ -2396,6 +2396,11 @@
           "code": "club_not_found",
           "meaning": "The requested club was not found.",
           "recovery": "Refetch session.getContext and use a current clubId."
+        },
+        {
+          "code": "club_archived",
+          "meaning": "The club is archived and cannot be listed through the clubadmin surface.",
+          "recovery": "Use superadmin.clubs.setDirectoryListed for archived clubs."
         }
       ],
       "description": "Set whether an active club appears in the public directory. Changes appear within roughly 60 seconds because the public directory is TTL-cached.",
@@ -20578,5 +20583,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "23c1003ef0758072"
+  "schemaHash": "aae8137c8675928a"
 }

@@ -71,6 +71,29 @@ describe('directory cache', () => {
     assert.notEqual(third.payload.generatedAt, first.payload.generatedAt);
   });
 
+  it('deduplicates simultaneous cold-cache loads', async () => {
+    let calls = 0;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cache = createDirectoryCache({
+      loadDirectorySnapshot: async () => {
+        calls += 1;
+        await pending;
+        return snapshot(['Stampede Club']);
+      },
+    }, { ttlMs: 60_000 });
+
+    const first = cache.get();
+    const second = cache.get();
+    release();
+
+    const [firstEntry, secondEntry] = await Promise.all([first, second]);
+    assert.equal(firstEntry, secondEntry);
+    assert.equal(calls, 1);
+  });
+
   it('keeps the directory schema hash independent from data', async () => {
     const first = await entryFor(['One Club']);
     const second = await entryFor(['Different Club', 'Another Club']);

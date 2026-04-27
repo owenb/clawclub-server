@@ -382,15 +382,25 @@ export async function setClubDirectoryListed(
   input: { clubId: string; listed: boolean; allowArchived?: boolean },
 ): Promise<ClubSummary | null> {
   return withTransaction(pool, async (client) => {
-    const result = await client.query<{ id: string }>(
+    const current = await client.query<{ archived_at: string | null }>(
+      `select archived_at::text as archived_at
+         from clubs
+        where id = $1
+        for update`,
+      [input.clubId],
+    );
+    const row = current.rows[0];
+    if (!row) return null;
+    if (row.archived_at !== null && input.allowArchived !== true) {
+      throw new AppError('club_archived', 'Club is archived.');
+    }
+
+    await client.query(
       `update clubs
           set directory_listed = $1
-        where id = $2
-          and ($3::boolean = true or archived_at is null)
-        returning id`,
-      [input.listed, input.clubId, input.allowArchived === true],
+        where id = $2`,
+      [input.listed, input.clubId],
     );
-    if (!result.rows[0]) return null;
     return readClub(client, input.clubId);
   });
 }

@@ -115,6 +115,7 @@ describe('public directory', () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers['content-encoding'], 'gzip');
     assert.equal(response.headers['vary'], 'Accept-Encoding');
+    assert.equal(response.headers['cache-control'], 'public, max-age=60');
     assert.match(String(response.headers.etag), /^W\/"[0-9a-f]{16}"$/);
     assert.equal(response.json?.ok, true);
     const data = response.json?.data as Record<string, unknown>;
@@ -162,6 +163,9 @@ describe('public directory', () => {
     assert.deepEqual(newestResults.map((club) => club.clubId), [gamma.clubId, beta.clubId]);
     assert.equal(newestData.hasMore, true);
     assert.ok(newestData.nextCursor);
+    assert.equal(newestData.schemaVersion, 1);
+    assert.equal(typeof newestData.directorySchemaHash, 'string');
+    assert.equal(typeof newestData.generatedAt, 'string');
     const newestMembers = newestData.membersById as Record<string, unknown>;
     assert.deepEqual(Object.keys(newestMembers).sort(), [beta.ownerMemberId, gamma.ownerMemberId].sort());
 
@@ -241,6 +245,12 @@ describe('public directory', () => {
       clubId: activeOwner.club.id,
       listed: false,
     }, 'forbidden_role');
+
+    const missing = await h.apiErr(superadmin.token, 'clubadmin.clubs.setDirectoryListed', {
+      clubId: 'missing-directory-club',
+      listed: true,
+    }, 'club_not_found');
+    assert.match(missing.message, /not found/i);
 
     const archivedOwner = await h.seedOwner(uniqueSlug('dir-archived'), uniqueName('Directory Archived'));
     await h.apiOk(superadmin.token, 'superadmin.clubs.archive', {
