@@ -132,16 +132,30 @@ export async function authenticateBearerToken(pool: Pool, bearerToken: string): 
   const parsed = parseBearerToken(bearerToken);
   if (!parsed) return null;
 
-  // Inline the old security definer function: validate token + update last_used_at
+  // Validate the token every time, but only rewrite last_used_at when it is stale.
+  // Avoiding a hot-row UPDATE on every request keeps chatty agents from generating
+  // unnecessary WAL and dead tuples.
   const tokenResult = await pool.query<{ member_id: string }>(
     `
-      update member_bearer_tokens
-      set last_used_at = now()
-      where id = $1
-        and token_hash = $2
-        and revoked_at is null
-        and (expires_at is null or expires_at > now())
-      returning member_id
+      with matched as (
+        select id, member_id, last_used_at
+        from member_bearer_tokens
+        where id = $1
+          and token_hash = $2
+          and revoked_at is null
+          and (expires_at is null or expires_at > now())
+      ), touched as (
+        update member_bearer_tokens token
+           set last_used_at = now()
+          from matched
+         where token.id = matched.id
+           and (
+             matched.last_used_at is null
+             or matched.last_used_at < now() - interval '1 minute'
+           )
+        returning token.member_id
+      )
+      select member_id from matched
     `,
     [parsed.tokenId, hashTokenSecret(parsed.secret)],
   );

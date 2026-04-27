@@ -1939,6 +1939,43 @@ describe('accessTokens.list', () => {
     assert.equal(data.nextCursor, null);
   });
 
+  it('throttles bearer last_used_at writes for hot tokens', async () => {
+    const member = await h.seedMember('Token Last Used Throttle');
+    const tokenRow = await h.pools.super.query<{ id: string }>(
+      `select id from member_bearer_tokens where member_id = $1 order by created_at desc limit 1`,
+      [member.id],
+    );
+    const tokenId = tokenRow.rows[0]!.id;
+
+    const freshRow = await h.pools.super.query<{ last_used_at: string }>(
+      `update member_bearer_tokens
+          set last_used_at = now()
+        where id = $1
+        returning last_used_at::text as last_used_at`,
+      [tokenId],
+    );
+    await h.apiOk(member.token, 'session.getContext', {});
+    const unchangedRow = await h.pools.super.query<{ last_used_at: string }>(
+      `select last_used_at::text as last_used_at from member_bearer_tokens where id = $1`,
+      [tokenId],
+    );
+    assert.equal(unchangedRow.rows[0]!.last_used_at, freshRow.rows[0]!.last_used_at);
+
+    const staleRow = await h.pools.super.query<{ last_used_at: string }>(
+      `update member_bearer_tokens
+          set last_used_at = now() - interval '2 minutes'
+        where id = $1
+        returning last_used_at::text as last_used_at`,
+      [tokenId],
+    );
+    await h.apiOk(member.token, 'session.getContext', {});
+    const touchedRow = await h.pools.super.query<{ last_used_at: string }>(
+      `select last_used_at::text as last_used_at from member_bearer_tokens where id = $1`,
+      [tokenId],
+    );
+    assert.notEqual(touchedRow.rows[0]!.last_used_at, staleRow.rows[0]!.last_used_at);
+  });
+
   it('uses canonical cursor pagination for self and superadmin token lists', async () => {
     const admin = await h.seedSuperadmin('Token Pagination Admin');
     const member = await h.seedMember('Token Pagination Member');
