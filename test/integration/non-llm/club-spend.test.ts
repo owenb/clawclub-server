@@ -2,6 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
 import { DEFAULT_CONFIG_V1, type AppConfig } from '../../../src/config/index.ts';
+import { processEmbeddings } from '../../../src/workers/embedding.ts';
 
 let h: TestHarness;
 let gateCalls = 0;
@@ -217,5 +218,79 @@ describe('club spend budget', () => {
       [owner.id, payload.clientKey],
     );
     assert.equal(Number(contentRows[0]!.count), 1);
+  });
+
+  it('worker sweep releases expired pending club-spend reservations', async () => {
+    const owner = await h.seedOwner('club-spend-sweep', 'Club Spend Sweep');
+    const expired = await h.sql<{ id: string }>(
+      `insert into ai_club_spend_reservations (
+         club_id,
+         member_id,
+         action_name,
+         usage_kind,
+         provider,
+         model,
+         status,
+         reserved_micro_cents,
+         actual_micro_cents,
+         reserved_input_tokens_estimate,
+         reserved_output_tokens,
+         actual_prompt_tokens,
+         actual_completion_tokens,
+         actual_embedding_tokens,
+         expires_at,
+         finalized_at
+       )
+       values ($1, $2, 'content.create', 'gate', 'openai', 'gpt-5.4-nano', 'pending',
+               1000, null, 10, 64, null, null, null, now() - interval '1 minute', null)
+       returning id`,
+      [owner.club.id, owner.id],
+    );
+    const live = await h.sql<{ id: string }>(
+      `insert into ai_club_spend_reservations (
+         club_id,
+         member_id,
+         action_name,
+         usage_kind,
+         provider,
+         model,
+         status,
+         reserved_micro_cents,
+         actual_micro_cents,
+         reserved_input_tokens_estimate,
+         reserved_output_tokens,
+         actual_prompt_tokens,
+         actual_completion_tokens,
+         actual_embedding_tokens,
+         expires_at,
+         finalized_at
+       )
+       values ($1, $2, 'content.create', 'gate', 'openai', 'gpt-5.4-nano', 'pending',
+               1000, null, 10, 64, null, null, null, now() + interval '10 minutes', null)
+       returning id`,
+      [owner.club.id, owner.id],
+    );
+
+    await processEmbeddings({ db: h.pools.super });
+
+    const rows = await h.sql<{
+      id: string;
+      status: string;
+      actual_micro_cents: string | null;
+      finalized_at: string | null;
+    }>(
+      `select id, status, actual_micro_cents::text as actual_micro_cents, finalized_at::text as finalized_at
+       from ai_club_spend_reservations
+       where id = any($1::text[])
+       order by id`,
+      [[expired[0]!.id, live[0]!.id]],
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    assert.equal(byId.get(expired[0]!.id)?.status, 'released');
+    assert.equal(byId.get(expired[0]!.id)?.actual_micro_cents, '0');
+    assert.match(String(byId.get(expired[0]!.id)?.finalized_at), /^\d{4}-\d{2}-\d{2}/);
+    assert.equal(byId.get(live[0]!.id)?.status, 'pending');
+    assert.equal(byId.get(live[0]!.id)?.actual_micro_cents, null);
+    assert.equal(byId.get(live[0]!.id)?.finalized_at, null);
   });
 });

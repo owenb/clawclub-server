@@ -16,6 +16,7 @@ import {
   finalizeClubSpendBudget,
   releaseClubSpendBudget,
   reserveClubSpendBudget,
+  sweepExpiredClubSpendReservations,
   type EmbeddingSpendEstimate,
 } from '../club-spend.ts';
 import { buildProfileSourceText, buildContentSourceText, buildEventSourceText, computeSourceHash } from '../embedding-source.ts';
@@ -771,6 +772,11 @@ async function insertEntityArtifact(pool: Pool, job: EmbeddingJob, sourceText: s
 // ── Worker entry point ─────────────────────────────────
 
 async function processEmbeddings(pools: WorkerPools): Promise<number> {
+  const releasedReservations = await sweepExpiredClubSpendReservations(pools.db);
+  if (releasedReservations > 0) {
+    logger.info('club_spend_expired_reservations_released', { releasedReservations });
+  }
+
   const profileCount = await processPlane(
     pools.db,
     'profiles',

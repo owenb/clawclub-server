@@ -391,3 +391,18 @@ export async function releaseClubSpendBudget(pool: Pool, input: {
     [input.reservationId],
   );
 }
+
+export async function sweepExpiredClubSpendReservations(pool: Pool): Promise<number> {
+  const result = await pool.query(
+    `update ai_club_spend_reservations
+     set status = 'released',
+         actual_micro_cents = 0,
+         actual_prompt_tokens = null,
+         actual_completion_tokens = null,
+         actual_embedding_tokens = null,
+         finalized_at = now()
+     where status = 'pending'
+       and expires_at <= now()`,
+  );
+  return result.rowCount ?? 0;
+}
