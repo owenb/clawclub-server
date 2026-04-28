@@ -157,12 +157,31 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
     ],
   });
 
-  const wrongProducer = await h.internalProducerAcknowledge('other_producer', otherProducer.secret, {
-    notificationIds: [transactionalId, 'missing_notification'],
-  });
+  const warnLines: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnLines.push(args.map(String).join(' '));
+    originalWarn(...args);
+  };
+  let wrongProducer: Awaited<ReturnType<typeof h.internalProducerAcknowledge>>;
+  try {
+    wrongProducer = await h.internalProducerAcknowledge('other_producer', otherProducer.secret, {
+      notificationIds: [transactionalId, 'missing_notification'],
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
   assert.deepEqual(
     (wrongProducer.body.data.results as Array<Record<string, unknown>>).map((row) => row.outcome),
     ['not_found', 'not_found'],
+  );
+  assert.ok(
+    warnLines.some((line) => (
+      line.includes('producer_acknowledge_foreign_id')
+      && line.includes('other_producer')
+      && line.includes(transactionalId)
+    )),
+    'cross-producer acknowledgement attempts should be visible in operator logs',
   );
 
   const rotated = await h.apiOk(admin.token, 'superadmin.notificationProducers.rotateSecret', {

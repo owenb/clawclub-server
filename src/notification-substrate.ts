@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DbClient } from './db.ts';
 import { AppError } from './errors.ts';
+import { logger } from './logger.ts';
 
 export const NOTIFICATION_REF_KINDS = [
   'member',
@@ -91,6 +92,12 @@ export type AutoAcknowledgeSelector = {
   topic?: string;
   clubId?: string | null;
   matchesAny?: readonly AutoAcknowledgeMatch[];
+};
+
+type ExistingProducerNotificationRow = {
+  id: string;
+  producer_id: string;
+  acknowledged_at: string | null;
 };
 
 type ProducerRow = {
@@ -1153,11 +1160,7 @@ export async function acknowledgeProducerNotificationsById(
     return [];
   }
 
-  const existingResult = await client.query<{
-    id: string;
-    producer_id: string;
-    acknowledged_at: string | null;
-  }>(
+  const existingResult = await client.query<ExistingProducerNotificationRow>(
     `select id, producer_id, acknowledged_at::text as acknowledged_at
        from member_notifications
       where id = any($1::text[])`,
@@ -1183,6 +1186,18 @@ export async function acknowledgeProducerNotificationsById(
     for (const row of updateResult.rows) {
       acknowledgedById.set(row.id, row.acknowledged_at);
     }
+  }
+
+  const foreignProducerRows = notificationIds
+    .map((notificationId) => existingById.get(notificationId))
+    .filter((row): row is ExistingProducerNotificationRow => Boolean(row && row.producer_id !== input.producerId));
+  if (foreignProducerRows.length > 0) {
+    logger.warn('producer_acknowledge_foreign_id', {
+      producerId: input.producerId,
+      foreignProducerIds: [...new Set(foreignProducerRows.map((row) => row.producer_id))],
+      count: foreignProducerRows.length,
+      sampleNotificationIds: foreignProducerRows.slice(0, 5).map((row) => row.id),
+    });
   }
 
   return notificationIds.map((notificationId) => {
