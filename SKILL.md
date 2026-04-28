@@ -151,7 +151,7 @@ Member/owner update surface:
 
 - use it for text changes (`name`, `summary`, `admissionPolicy`)
 - it is LLM-gated for substantive text edits
-- it skips the gate for semantic no-ops
+- it skips the gate for semantic no-ops and for clearing optional `summary` / `admissionPolicy` text
 - it does **not** let the owner change `memberCap` or escape the free allowance
 
 Superadmin update surface:

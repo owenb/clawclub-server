@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { requestScopeForClub, requestScopeForClubs } from '../actors.ts';
 import { AppError } from '../repository.ts';
 import { adminApplicationState, applicationPhase } from './application-shapes.ts';
+import { clubTextPatchSkipsGate, mergeClubTextPatch } from './club-text.ts';
 import {
   boundedArray,
   describeClientKey,
@@ -107,27 +108,6 @@ async function loadClubForUpdateGate(
     throw new AppError('club_archived', 'Club is archived.');
   }
   return club;
-}
-
-function mergeClubTextPatch(
-  current: { name: string; summary: string | null; admissionPolicy: string | null },
-  patch: { name?: string; summary?: string | null; admissionPolicy?: string | null },
-) {
-  return {
-    name: patch.name !== undefined ? patch.name : current.name,
-    summary: patch.summary !== undefined ? patch.summary : current.summary,
-    admissionPolicy: patch.admissionPolicy !== undefined ? patch.admissionPolicy : current.admissionPolicy,
-  };
-}
-
-function clubTextPatchIsNoOp(
-  current: { name: string; summary: string | null; admissionPolicy: string | null },
-  patch: { name?: string; summary?: string | null; admissionPolicy?: string | null },
-): boolean {
-  const merged = mergeClubTextPatch(current, patch);
-  return merged.name === current.name
-    && merged.summary === current.summary
-    && merged.admissionPolicy === current.admissionPolicy;
 }
 
 // ── clubadmin.members.list ─────────────────────────
@@ -619,7 +599,7 @@ const clubadminClubsUpdate: ActionDefinition = {
     async shouldSkip(input, ctx): Promise<boolean> {
       const parsed = input as ClubadminClubsUpdateInput;
       const current = await loadClubForUpdateGate(ctx, parsed.clubId);
-      return clubTextPatchIsNoOp(current, parsed);
+      return clubTextPatchSkipsGate(current, parsed);
     },
     async buildArtifact(input, ctx) {
       const parsed = input as ClubadminClubsUpdateInput;

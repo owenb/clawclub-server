@@ -103,6 +103,7 @@ The `included` envelope is a generic normalization container, not mentions-speci
 - six artifact kinds are gated by the content gate: `content`, `event`, `profile`, `vouch`, `invitation`, `club`. A seventh kind, `application`, flows through the application-completeness gate
 - each gated write makes exactly one LLM call with a self-contained prompt keyed by artifact kind
 - mention syntax is storage/API syntax, not a moderation signal. Before text enters a gate prompt, canonical `[Display Name|memberId]` spans are rendered as plain display names and malformed bracket text is left unchanged
+- club text updates skip the content gate when they introduce no new text: exact no-ops, non-text superadmin changes, and clearing optional summary/admission-policy fields. Name changes or newly supplied text still run through the gate
 - DM send paths are not content-gated
 - the gate must return an explicit PASS for the action to proceed
 - if the gate cannot run (missing API key, provider outage, provider error), the action fails with 503 `gate_unavailable`

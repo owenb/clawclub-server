@@ -186,6 +186,64 @@ describe('superadmin club-cap updates', () => {
     assert.equal(gateCalls, 0, 'semantic no-op text updates should skip the gate entirely');
   });
 
+  it('skips the gate when clubadmin or superadmin only clears optional club text', async () => {
+    const admin = await h.seedSuperadmin('Lifecycle Clear Text Admin');
+    const owner = await h.seedMember('Lifecycle Clear Text Owner');
+    const created = await h.apiOk(owner.token, 'clubs.create', {
+      clientKey: randomUUID(),
+      slug: `clear-text-club-${Date.now().toString(36)}`,
+      name: 'Clear Text Club',
+      summary: 'A club used to verify clear-only text updates.',
+      admissionPolicy: 'Tell us what you build and link one recent project.',
+    });
+    const club = (created.data as Record<string, unknown>).club as Record<string, unknown>;
+    const clubId = String(club.clubId);
+
+    gateCalls = 0;
+
+    const clubadminClear = await h.apiOk(owner.token, 'clubadmin.clubs.update', {
+      clientKey: randomUUID(),
+      clubId,
+      summary: null,
+    });
+    const clubadminClub = (clubadminClear.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(clubadminClub.summary, null);
+    assert.equal(gateCalls, 0, 'clubadmin clear-only summary updates should skip the gate');
+
+    const superadminClear = await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clientKey: randomUUID(),
+      clubId,
+      admissionPolicy: null,
+    });
+    const superadminClub = (superadminClear.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(superadminClub.admissionPolicy, null);
+    assert.equal(gateCalls, 0, 'superadmin clear-only admissionPolicy updates should skip the gate');
+  });
+
+  it('still runs the gate for substantive club text updates', async () => {
+    const owner = await h.seedMember('Lifecycle Substantive Text Owner');
+    const created = await h.apiOk(owner.token, 'clubs.create', {
+      clientKey: randomUUID(),
+      slug: `substantive-text-club-${Date.now().toString(36)}`,
+      name: 'Substantive Text Club',
+      summary: 'A club used to verify substantive text updates.',
+      admissionPolicy: 'Tell us what you build and link one recent project.',
+    });
+    const club = (created.data as Record<string, unknown>).club as Record<string, unknown>;
+    const clubId = String(club.clubId);
+
+    gateCalls = 0;
+
+    const updated = await h.apiOk(owner.token, 'clubadmin.clubs.update', {
+      clientKey: randomUUID(),
+      clubId,
+      summary: 'A changed summary that introduces new club text.',
+    });
+    const updatedClub = (updated.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(updatedClub.summary, 'A changed summary that introduces new club text.');
+    assert.equal(gateCalls, 1, 'substantive text updates should still run the gate');
+  });
+
   it('rejects archived club updates before running the gate', async () => {
     const admin = await h.seedSuperadmin('Lifecycle Archived Update Admin');
     const owner = await h.seedOwner('archived-update-club', 'Archived Update Club');
