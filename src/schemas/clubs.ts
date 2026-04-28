@@ -147,6 +147,11 @@ const clubsCreate: ActionDefinition = {
         artifact: buildClubArtifact(parsed),
         repository: ctx.repository,
         runLlmGate: ctx.runLlmGate,
+        idempotency: {
+          clientKey: parsed.clientKey,
+          actorContext,
+          requestValue,
+        },
       });
     }
 

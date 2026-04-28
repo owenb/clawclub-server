@@ -17,7 +17,7 @@
  * since it requires IP-level context that doesn't belong in the action layer.
  */
 
-import { AppError } from './errors.ts';
+import { AppError, type ErrorCode } from './errors.ts';
 import type {
   LogApiRequestInput,
   MembershipSummary,
@@ -39,7 +39,6 @@ import {
 import {
   checkLlmGate as defaultCheckLlmGate,
   type GateVerdict,
-  type GatedArtifact,
   type NonApplicationArtifact,
 } from './gate.ts';
 import {
@@ -54,6 +53,7 @@ import { getLlmGateMaxOutputTokens } from './quotas.ts';
 import { QUOTA_ACTIONS } from './quota-metadata.ts';
 import { fireAndForgetLlmUsageLog, fireAndForgetRequestLog, logger } from './logger.ts';
 import { createDirectoryCache, type DirectoryCache } from './directory.ts';
+import { deterministicLowSubstanceError } from './gate-runner.ts';
 
 export type LlmGateFn = (artifact: NonApplicationArtifact, options?: { maxOutputTokens?: number }) => Promise<GateVerdict>;
 
@@ -275,22 +275,68 @@ async function runLlmGateFor(
   const llmGate = def.llmGate;
 
   const runUnlocked = async (): Promise<void> => {
-    if (def.idempotency && repository.peekIdempotencyReplay) {
+    const idempotencyReplay = async () => {
+      if (!def.idempotency) return false;
       const clientKey = def.idempotency.getClientKey(parsedInput);
-      if (clientKey) {
-        const scopeKey = def.idempotency.getScopeKey(parsedInput, { actor });
-        const requestValue = def.idempotency.getRequestValue
-          ? def.idempotency.getRequestValue(parsedInput, { actor })
-          : parsedInput;
+      if (!clientKey) return false;
+      const scopeKey = def.idempotency.getScopeKey(parsedInput, { actor });
+      const requestValue = def.idempotency.getRequestValue
+        ? def.idempotency.getRequestValue(parsedInput, { actor })
+        : parsedInput;
+      if (repository.lookupIdempotencyTerminalError) {
+        const terminal = await repository.lookupIdempotencyTerminalError({
+          clientKey,
+          actorContext: scopeKey,
+          requestValue,
+        });
+        if (terminal) {
+          throw new AppError(terminal.code as ErrorCode, terminal.message, {
+            ...(terminal.details !== undefined ? { details: terminal.details } : {}),
+          });
+        }
+      }
+      if (repository.peekIdempotencyReplay) {
         const replayHit = await repository.peekIdempotencyReplay({
           clientKey,
           actorContext: scopeKey,
           requestValue,
         });
-        if (replayHit) {
-          return;
-        }
+        return replayHit;
       }
+      return false;
+    };
+
+    const storeTerminalGateError = async (err: AppError) => {
+      if (!def.idempotency || !repository.storeIdempotencyTerminalError) return;
+      if (!['illegal_content', 'low_quality_content', 'gate_rejected'].includes(err.code)) return;
+      const clientKey = def.idempotency.getClientKey(parsedInput);
+      if (!clientKey) return;
+      const scopeKey = def.idempotency.getScopeKey(parsedInput, { actor });
+      const requestValue = def.idempotency.getRequestValue
+        ? def.idempotency.getRequestValue(parsedInput, { actor })
+        : parsedInput;
+      try {
+        await repository.storeIdempotencyTerminalError({
+          clientKey,
+          actorContext: scopeKey,
+          requestValue,
+          error: {
+            code: err.code,
+            message: err.message,
+            ...(err.details !== undefined ? { details: err.details } : {}),
+          },
+        });
+      } catch (error) {
+        logger.error('idempotency_terminal_gate_error_store_failed', error, {
+          actionName: def.action,
+          clientKey,
+          actorContext: scopeKey,
+        });
+      }
+    };
+
+    if (await idempotencyReplay()) {
+      return;
     }
 
     const gateCtx = { actor, repository };
@@ -298,6 +344,11 @@ async function runLlmGateFor(
       return;
     }
     const artifact = await llmGate.buildArtifact(parsedInput, gateCtx);
+    const lowSubstanceError = deterministicLowSubstanceError(artifact);
+    if (lowSubstanceError) {
+      await storeTerminalGateError(lowSubstanceError);
+      throw lowSubstanceError;
+    }
     const budgetClubId = llmGate.resolveBudgetClubId
       ? await llmGate.resolveBudgetClubId(parsedInput, gateCtx)
       : requestedClubId;
@@ -419,7 +470,10 @@ async function runLlmGateFor(
     );
 
     const err = gateVerdictToAppError(verdict);
-    if (err) throw err;
+    if (err) {
+      await storeTerminalGateError(err);
+      throw err;
+    }
   };
 
   await runUnlocked();

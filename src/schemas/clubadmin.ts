@@ -129,7 +129,14 @@ const clubadminMembersList: ActionDefinition = {
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
+  businessErrors: [
+    ...CLUBADMIN_AUTH_ERRORS,
+    {
+      code: 'member_not_found',
+      meaning: 'No active member with that id was found in the specified club.',
+      recovery: 'Refetch clubadmin.members.list and retry with a current memberId.',
+    },
+  ],
 
   input: defineInput({
     wire: z.object({
@@ -197,7 +204,14 @@ const clubadminApplicationsList: ActionDefinition = {
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
+  businessErrors: [
+    ...CLUBADMIN_AUTH_ERRORS,
+    {
+      code: 'application_not_found',
+      meaning: 'The application was not found in the specified club.',
+      recovery: 'Refetch clubadmin.applications.list and retry with a current applicationId.',
+    },
+  ],
 
   input: defineInput({
     wire: z.object({
@@ -697,6 +711,7 @@ const clubadminClubsSetDirectoryListed: ActionDefinition = {
     if (!club) {
       throw new AppError('club_not_found', 'Club not found.');
     }
+    ctx.directoryCache.invalidate();
     return {
       data: { club },
       requestScope: requestScopeForClub(club.clubId),

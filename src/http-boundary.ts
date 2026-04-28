@@ -36,13 +36,18 @@ export function getBearerToken(request: http.IncomingMessage): string | null {
 export function readJsonBody(
   request: http.IncomingMessage,
   maxBodyBytes = DEFAULT_SERVER_LIMITS.maxBodyBytes,
+  bodyReceiveTimeoutMs = DEFAULT_SERVER_LIMITS.bodyReceiveTimeoutMs,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     let settled = false;
+    const timeout = setTimeout(() => {
+      rejectOnce(new AppError('payload_timeout', 'Request body was not received in time', { closeConnection: true }));
+    }, bodyReceiveTimeoutMs);
 
     const cleanup = () => {
+      clearTimeout(timeout);
       request.off('data', onData);
       request.off('end', onEnd);
       request.off('error', onError);
@@ -101,7 +106,10 @@ export function readJsonBody(
     };
 
     const onError = (error: Error) => rejectOnce(error);
-    const onAborted = () => rejectOnce(new Error('Request body was aborted'));
+    const onAborted = () => rejectOnce(new AppError('invalid_json', 'Request body was aborted', {
+      details: { kind: 'client_aborted' },
+      closeConnection: true,
+    }));
 
     request.on('data', onData);
     request.on('end', onEnd);

@@ -30,6 +30,8 @@ type SchemaAction = {
   description: string;
   auth: string;
   safety: string;
+  scope?: unknown;
+  idempotencyStrategy?: unknown;
   authorizationNote?: string;
   businessErrors?: SchemaBusinessError[];
   scopeRules?: string[];
@@ -276,6 +278,7 @@ function buildTransport(unauthenticatedActions: string[]): unknown {
       { code: 'forbidden_role', status: 403 },
       { code: 'forbidden_scope', status: 403 },
       { code: 'rate_limited', status: 429 },
+      { code: 'payload_timeout', status: 408 },
       { code: 'payload_too_large', status: 413 },
       { code: 'stale_client', status: 409, meaning: 'The client cached an older schema. Refetch /api/schema and /skill, then retry.' },
       { code: 'internal_error', status: 500 },
@@ -297,10 +300,14 @@ function buildSchema(): unknown {
       description: def.description,
       auth: def.auth,
       safety: def.safety,
+      scope: def.scope ?? { strategy: 'none' },
       input: inputSchema,
       output: toActionJsonSchema(def.wire.output),
     };
 
+    if (def.idempotencyStrategy) {
+      entry.idempotencyStrategy = def.idempotencyStrategy;
+    }
     if (def.authorizationNote) {
       entry.authorizationNote = def.authorizationNote;
     }

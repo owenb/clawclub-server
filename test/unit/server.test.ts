@@ -477,6 +477,37 @@ test('createServer exposes contract headers on core routes and JSON responses', 
   }
 });
 
+test('createServer rate-limits bootstrap schema and skill routes with JSON errors', async () => {
+  const requestFetch = globalThis.fetch;
+  const { server, shutdown } = createServer({
+    repository: makeRepository(),
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+    let schemaResponse: Response | null = null;
+    for (let i = 0; i < 121; i += 1) {
+      schemaResponse = await requestFetch(`http://127.0.0.1:${port}/api/schema`);
+    }
+    assert.equal(schemaResponse?.status, 429);
+    assert.equal(schemaResponse?.headers.get('retry-after'), '60');
+    const schemaBody = await schemaResponse!.json();
+    assert.equal(schemaBody.error.code, 'rate_limited');
+
+    let skillResponse: Response | null = null;
+    for (let i = 0; i < 121; i += 1) {
+      skillResponse = await requestFetch(`http://127.0.0.1:${port}/skill`);
+    }
+    assert.equal(skillResponse?.status, 429);
+    assert.equal(skillResponse?.headers.get('retry-after'), '60');
+    const skillBody = await skillResponse!.json();
+    assert.equal(skillBody.error.code, 'rate_limited');
+  } finally {
+    await shutdown();
+  }
+});
+
 test('createServer accepts unauthenticated accounts.register discover over POST /api', async () => {
   const requestFetch = globalThis.fetch;
 

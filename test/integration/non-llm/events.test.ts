@@ -169,7 +169,19 @@ describe('events', () => {
       no: 0,
       waitlist: 0,
     });
-    assert.equal(((yesEntity.rsvps as Record<string, unknown>).attendees as Array<unknown>).length, 1);
+    const attendees = (yesEntity.rsvps as Record<string, unknown>).attendees as Array<Record<string, unknown>>;
+    assert.equal(attendees.length, 1);
+    const firstCreatedAt = String(attendees[0]?.createdAt);
+
+    const replayYes = await h.apiOk(attendee.token, 'events.setRsvp', {
+      eventId: created.id,
+      response: 'yes',
+      note: 'Count me in',
+    });
+    const replayEntity = (replayYes.data as Record<string, unknown>).content as Record<string, unknown>;
+    const replayAttendees = (replayEntity.rsvps as Record<string, unknown>).attendees as Array<Record<string, unknown>>;
+    assert.equal(replayAttendees.length, 1);
+    assert.equal(replayAttendees[0]?.createdAt, firstCreatedAt, 'exact RSVP replay must not append a new RSVP version');
 
     const afterCancel = await h.apiOk(attendee.token, 'events.setRsvp', {
       eventId: created.id,

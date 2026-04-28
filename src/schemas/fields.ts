@@ -53,6 +53,8 @@ const safeString = z.string().refine(
 );
 const OPAQUE_STRING_MAX_CHARS = 100_000;
 export const CLAWCLUB_TIMESTAMP_META = 'timestamp';
+const INT32_MAX = 2_147_483_647;
+const ZERO_WIDTH_CHARS = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 export const timestampString = z.string().meta({ clawclubType: CLAWCLUB_TIMESTAMP_META });
 
@@ -173,6 +175,46 @@ export function paginationFields(
     wire: { limit: wireLimitOf(maxLimit), cursor: wireCursor },
     parse: { limit: parseLimitOf(defaultLimit, maxLimit), cursor: parseCursor },
   } as const;
+}
+
+export function wirePositiveInt32(description?: string) {
+  const schema = z.number().int().min(1).max(INT32_MAX).nullable().optional();
+  return description ? schema.describe(description) : schema;
+}
+
+export function parsePositiveInt32() {
+  return z.number().int().min(1).max(INT32_MAX).nullable().optional();
+}
+
+export function normalizeVisibleText(value: string): string {
+  return value.replace(ZERO_WIDTH_CHARS, '');
+}
+
+export function visibleTextLength(value: string): number {
+  return Array.from(normalizeVisibleText(value).replace(/\s+/gu, '')).length;
+}
+
+export function hasVisibleText(value: string, minVisibleChars = 1): boolean {
+  return visibleTextLength(value) >= minVisibleChars;
+}
+
+export function hasSubstantiveText(value: string, minVisibleChars = 20): boolean {
+  return visibleTextLength(value) >= minVisibleChars;
+}
+
+export function jsonbSafeValue(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return !FORBIDDEN_STRING_CHARS.test(value);
+  }
+  if (Array.isArray(value)) {
+    return value.every(jsonbSafeValue);
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).every(([key, child]) => (
+      !FORBIDDEN_STRING_CHARS.test(key) && jsonbSafeValue(child)
+    ));
+  }
+  return true;
 }
 
 const SMALL_TEXT_MAX_CHARS = 2_000;
@@ -302,32 +344,35 @@ export function describeClientKey(purpose = 'Idempotency key.'): string {
 export const APPLICATION_SOCIALS_DESCRIPTION = 'Freeform context — handles, URLs, portfolio notes. Empty is fine if you have nothing public to link.';
 export const APPLICATION_SUBMISSION_PATH_DESCRIPTION = '`cold` (self-initiated) or `invitation` (invite-redeemed). Historical metadata; every accepted application produces an identical membership regardless.';
 
-/** Wire: ISO 8601 date or datetime string. */
-export const wireIsoDatetime = z.string()
-  .describe('ISO 8601 date or datetime (e.g. "2025-12-31" or "2025-12-31T23:59:59Z").');
+/** Wire: ISO 8601 instant string with seconds and explicit UTC offset. */
+export const wireIsoInstant = z.string()
+  .describe('ISO 8601 datetime with seconds and timezone (e.g. "2025-12-31T23:59:59Z" or "2025-12-31T23:59:59+01:00").');
 
-/** Parse: validates the string is a strict ISO 8601 date or datetime. */
-export const parseIsoDatetime = safeString.pipe(z.string().trim().min(1))
+/** Parse: validates an ISO 8601 instant with explicit Z or ±HH:MM offset. */
+export const parseIsoInstant = safeString.pipe(z.string().trim().min(1))
   .refine(
     (s) => {
-      const isoRegex = /^\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9](\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+      const isoRegex = /^\d{4}-(0[1-9]|1[012])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
       if (!isoRegex.test(s) || Number.isNaN(Date.parse(s))) {
         return false;
       }
-      const offset = s.match(/([+-])(\d{2}):?(\d{2})$/);
+      const offset = s.match(/([+-])(\d{2}):(\d{2})$/);
       if (!offset) {
-        return true;
+        return s.endsWith('Z');
       }
       const sign = offset[1] === '+' ? 1 : -1;
       const minutes = sign * (Number(offset[2]) * 60 + Number(offset[3]));
       return minutes >= -720 && minutes <= 840;
     },
-    'Must be a valid ISO 8601 datetime with a real-world UTC offset',
+    'Must be a valid ISO 8601 datetime with seconds and explicit timezone',
   );
+
+export const wireIsoDatetime = wireIsoInstant;
+export const parseIsoDatetime = parseIsoInstant;
 
 const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
 
-export const parseFutureIsoDatetime = parseIsoDatetime
+export const parseFutureIsoDatetime = parseIsoInstant
   .refine((s) => Date.parse(s) > Date.now(), 'Must be in the future')
   .refine((s) => Date.parse(s) <= Date.now() + FIVE_YEARS_MS, 'Must be within 5 years')
   .nullable()
@@ -337,8 +382,9 @@ export const parseFutureIsoDatetime = parseIsoDatetime
 export const wireMessageText = z.string().max(LARGE_TEXT_MAX_CHARS)
   .describe(`Required, max ${LARGE_TEXT_MAX_CHARS.toLocaleString('en-GB')} characters. Server trims whitespace; whitespace-only strings are rejected.`);
 
-/** Parse: message text, trimmed, max 20 000 characters */
-export const parseMessageText = safeString.pipe(z.string().trim().min(1).max(LARGE_TEXT_MAX_CHARS));
+/** Parse: message text, trimmed, max 20 000 characters, with visible text. */
+export const parseMessageText = safeString.pipe(z.string().trim().min(1).max(LARGE_TEXT_MAX_CHARS))
+  .refine((value) => hasVisibleText(value, 1), 'Must contain visible non-whitespace text');
 
 /** Wire: string capped at 500 characters. Server trims whitespace. */
 export const wireBoundedString = z.string().max(500)
@@ -376,6 +422,10 @@ export const parseOptionalRecord = z.record(z.string(), z.unknown())
   .refine(
     (value) => Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_RECORD_BYTES,
     `Record serialized length must be ≤ ${MAX_RECORD_BYTES} bytes`,
+  )
+  .refine(
+    (value) => jsonbSafeValue(value),
+    'Record contains text that cannot be stored as JSONB',
   );
 
 /** Shared typed club-profile link shape for wire/docs and responses */
@@ -467,15 +517,14 @@ export const parseMembershipStates = (defaultStates: MembershipState[]) =>
     .transform(states => [...new Set(states)]);
 
 /**
- * Wire: optional positive integer (nullable)
+ * Wire: optional positive Postgres int4 (nullable)
  */
-export const wireOptionalPositiveInt = z.number().int().min(1).nullable().optional()
-  .describe('Optional positive integer. Null to clear.');
+export const wireOptionalPositiveInt = wirePositiveInt32('Optional positive integer. Null to clear.');
 
 /**
- * Parse: validates positive integer if present
+ * Parse: validates positive Postgres int4 if present
  */
-export const parseOptionalPositiveInt = z.number().int().min(1).nullable().optional();
+export const parseOptionalPositiveInt = parsePositiveInt32();
 
 /** Wire: event fields for content.create(kind='event') */
 export const wireEventFieldsCreate = z.object({

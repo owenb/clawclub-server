@@ -41,7 +41,7 @@ describe('clubs.create gate ordering and idempotency', () => {
     await h?.stop();
   }, { timeout: 15_000 });
 
-  it('reruns the gate after a rejected create and still consumes the create quota', async () => {
+  it('caches rejected gate verdicts for exact clientKey replay without double-charging quota', async () => {
     gateMode = 'reject';
     gateCalls = 0;
 
@@ -66,17 +66,27 @@ describe('clubs.create gate ordering and idempotency', () => {
       admissionPolicy: 'Tell us what you build and link one recent project.',
     });
     assert.equal(replay.code, 'low_quality_content');
-    assert.equal(gateCalls, 2, 'failed attempts should not be cached by idempotency');
+    assert.equal(gateCalls, 1, 'failed attempts should replay the cached rejection without rerunning the gate');
 
-    const quotaErr = await h.apiErr(member.token, 'clubs.create', {
+    const secondIntent = await h.apiErr(member.token, 'clubs.create', {
       clientKey: randomUUID(),
       slug: 'rejected-club-two',
       name: 'Rejected Club Two',
-      summary: 'A third attempt should hit the request quota before the gate runs.',
+      summary: 'A second distinct rejected intent should consume the second quota unit.',
+      admissionPolicy: 'Tell us what you build and link one recent project.',
+    });
+    assert.equal(secondIntent.code, 'low_quality_content');
+    assert.equal(gateCalls, 2);
+
+    const quotaErr = await h.apiErr(member.token, 'clubs.create', {
+      clientKey: randomUUID(),
+      slug: 'rejected-club-three',
+      name: 'Rejected Club Three',
+      summary: 'A third distinct attempt should hit the request quota before the gate runs.',
       admissionPolicy: 'Tell us what you build and link one recent project.',
     });
     assert.equal(quotaErr.code, 'quota_exceeded');
-    assert.equal(gateCalls, 2, 'quota exhaustion should prevent a third gate call');
+    assert.equal(gateCalls, 2, 'quota exhaustion should prevent an extra gate call');
   });
 
   it('exact successful replay skips the gate and returns the original club', async () => {
@@ -100,6 +110,21 @@ describe('clubs.create gate ordering and idempotency', () => {
     const secondClub = (second.data as Record<string, unknown>).club as Record<string, unknown>;
     assert.equal(firstClub.clubId, secondClub.clubId);
     assert.equal(gateCalls, 1, 'exact replay should be served from idempotency without rerunning the gate');
+  });
+
+  it('rejects tiny gated content before calling the LLM gate', async () => {
+    gateMode = 'pass';
+    gateCalls = 0;
+
+    const owner = await h.seedOwner('tiny-content-owner', 'TinyContentClub');
+    const err = await h.apiErr(owner.token, 'content.create', {
+      clientKey: randomUUID(),
+      clubId: owner.club.id,
+      kind: 'post',
+      body: 'x',
+    });
+    assert.equal(err.code, 'low_quality_content');
+    assert.equal(gateCalls, 0, 'deterministic low-substance precheck should run before the LLM gate');
   });
 });
 

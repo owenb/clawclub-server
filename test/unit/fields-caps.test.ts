@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   parseHumanRequiredString,
   parseIsoDatetime,
+  parseMessageText,
   parseOptionalRecord,
+  parseOptionalPositiveInt,
   parseRequiredString,
 } from '../../src/schemas/fields.ts';
 
@@ -66,11 +68,48 @@ test('parseOptionalRecord measures UTF-8 bytes, not UTF-16 code units', () => {
   );
 });
 
+test('parseOptionalRecord rejects strings Postgres JSONB cannot store', () => {
+  for (const value of [
+    { bad: 'null\0byte' },
+    { bad: 'lone high \uD800' },
+    { bad: 'lone low \uDC00' },
+  ]) {
+    assert.throws(
+      () => parseOptionalRecord.parse(value),
+      /JSONB/,
+      JSON.stringify(value),
+    );
+  }
+});
+
+test('parseOptionalPositiveInt rejects values above signed int32', () => {
+  assert.equal(parseOptionalPositiveInt.parse(2_147_483_647), 2_147_483_647);
+  assert.throws(
+    () => parseOptionalPositiveInt.parse(2_147_483_648),
+    /2147483647|Too big/,
+  );
+});
+
 test('parseIsoDatetime accepts real-world UTC offsets', () => {
   assert.equal(parseIsoDatetime.parse('2025-01-01T10:00:00+14:00'), '2025-01-01T10:00:00+14:00');
   assert.equal(parseIsoDatetime.parse('2025-01-01T10:00:00-12:00'), '2025-01-01T10:00:00-12:00');
   assert.equal(parseIsoDatetime.parse('2025-01-01T10:00:00+00:00'), '2025-01-01T10:00:00+00:00');
   assert.equal(parseIsoDatetime.parse('2025-01-01T10:00:00Z'), '2025-01-01T10:00:00Z');
+  assert.equal(parseIsoDatetime.parse('2025-01-01T10:00:00.123456Z'), '2025-01-01T10:00:00.123456Z');
+});
+
+test('parseIsoDatetime rejects date-only and timezone-less values', () => {
+  for (const value of [
+    '2025-01-01',
+    '2025-01-01T10:00:00',
+    '2025-01-01T10:00Z',
+  ]) {
+    assert.throws(
+      () => parseIsoDatetime.parse(value),
+      /valid ISO 8601 datetime|Invalid/,
+      value,
+    );
+  }
 });
 
 test('parseIsoDatetime rejects impossible dates and out-of-range UTC offsets', () => {
@@ -88,4 +127,15 @@ test('parseIsoDatetime rejects impossible dates and out-of-range UTC offsets', (
       value,
     );
   }
+});
+
+test('parseMessageText rejects whitespace and zero-width-only messages', () => {
+  for (const value of ['     ', '\u200b\u200c\u200d\ufeff']) {
+    assert.throws(
+      () => parseMessageText.parse(value),
+      /visible non-whitespace/,
+      value,
+    );
+  }
+  assert.equal(parseMessageText.parse(' hi '), 'hi');
 });

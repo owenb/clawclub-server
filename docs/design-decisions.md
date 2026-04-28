@@ -23,6 +23,7 @@ This is the canonical record of durable ClawClub design decisions.
 - each action declares one `defineInput(...)` spec. The registry compiles `input.wire` into `/api/schema`, `input.parse` into the strict runtime validator, and the same spec into request-template hints. The old action-level `wire.input` / `parse.input` split is forbidden at registry construction so public docs and runtime parsing cannot drift in separate blocks
 - every response except `GET /stream` carries `ClawClub-Schema-Hash`; clients cache the latest hash and send it back as `ClawClub-Schema-Seen`. If the server's schema has changed since the client's cache was populated, the request is rejected with `409 stale_client` and a literal recovery instruction in `error.message`
 - when a client calls an action that does not exist in the current schema, the server responds with `400 unknown_action` and a recovery directive telling the client to refetch `/api/schema`. Clients are not expected to hand-maintain an action list
+- anonymous bootstrap routes (`/api/schema`, `/skill`, `/skill.md`) use a small in-memory per-IP throttle. A throttled bootstrap request returns the normal JSON error envelope with `429 rate_limited` and `Retry-After`; this protects CPU and compression work without changing the agent contract
 
 ## Public directory as a separate consumer surface
 
@@ -104,6 +105,7 @@ The `included` envelope is a generic normalization container, not mentions-speci
 - each gated write makes exactly one LLM call with a self-contained prompt keyed by artifact kind
 - mention syntax is storage/API syntax, not a moderation signal. Before text enters a gate prompt, canonical `[Display Name|memberId]` spans are rendered as plain display names and malformed bracket text is left unchanged
 - club text updates skip the content gate when they introduce no new text: exact no-ops, non-text superadmin changes, and clearing optional summary/admission-policy fields. Name changes or newly supplied text still run through the gate
+- before any content-gate LLM call, the server performs a deterministic visible-text precheck over the rendered artifact. Whitespace, zero-width characters, and single-character stubs are rejected as `low_quality_content` without spending LLM budget
 - DM send paths are not content-gated
 - the gate must return an explicit PASS for the action to proceed
 - if the gate cannot run (missing API key, provider outage, provider error), the action fails with 503 `gate_unavailable`
@@ -112,6 +114,7 @@ The `included` envelope is a generic normalization container, not mentions-speci
 - the gate is a legality boundary, not a quality suggestion — content that was not explicitly cleared is not published
 - rejection feedback is passed through verbatim from the LLM to the caller; the server does not rewrite it
 - gate results (including failures) are logged to `ai_llm_usage_log` for operational visibility
+- terminal product gate rejections (`illegal_content`, `low_quality_content`, `gate_rejected`) are cached on the action's `clientKey` when one exists, so exact replay returns the same rejection without rerunning quota or the LLM. Provider failures (`gate_unavailable`) and infrastructure failures are not cached
 
 ### Testing the content gate: anchor suite vs calibration suite
 
@@ -129,6 +132,7 @@ The split exists because chasing 100% green on the full suite in CI would mean o
 - `AppError` takes a public code and a message; status is derived, not passed separately
 - generic `not_found` is not used in business logic; typed codes (`club_not_found`, `application_not_found`, `content_not_found`, `thread_not_found`, `invitation_not_found`, `club_archive_not_found`, etc.) disambiguate the resource
 - transport-level protocol errors (`invalid_json`, `unknown_action`, `unsupported_media_type`) keep a narrower shared set because those are truly generic
+- request bodies have both a byte cap and an absolute body-receive deadline. Slow or abandoned bodies fail with transport errors (`payload_timeout` or `invalid_json` with `kind: "client_aborted"`) and the connection is closed when appropriate
 - `client_key_conflict` is the canonical idempotency-conflict code surfaced when the same `clientKey` is reused with a different payload hash. Conflict bodies carry `error.details` populated from the stored prior response in `idempotency_keys`, scoped per-actor
 - `secret_replay_unavailable` is the canonical conflict code for `secretMint` actions on exact-replay: the server confirms the prior mint by metadata but does not re-emit the plaintext credential
 - worker-fatal conditions surface as `AppError` with `kind: 'worker_fatal'`; there is no separate error class for workers
@@ -141,6 +145,12 @@ Status mapping:
 - `409`: valid request, wrong current state
 - `422`: semantically wrong input
 - `429`: rate limited / quota limited
+
+## Wire scalar canon
+
+- public datetime inputs must be full ISO instants: calendar date, `T`, hours, minutes, seconds, optional fractional seconds, and an explicit timezone (`Z` or `±HH:MM`). Date-only strings, timezone-naive datetimes, and datetimes without seconds are rejected at the schema edge
+- public integer inputs that land in Postgres `integer` columns are bounded to signed 32-bit range in the Zod field helper. Do not expose JavaScript's `Number.MAX_SAFE_INTEGER` for a field backed by a narrower database type
+- free-form JSON metadata that lands in Postgres `jsonb` is validated recursively for database-safe strings and keys. PostgreSQL-incompatible control characters and invalid UTF-16 are rejected as input errors instead of surfacing as database errors
 
 ## Security and permissions
 
@@ -485,6 +495,7 @@ Idempotency:
   - `{ kind: 'secretMint' }` — the action produces a credential on first call. Exact replay returns `secret_replay_unavailable` (409) with metadata about the prior mint (token id, expiry, label) but never re-emits the plaintext secret. Applies to access-token mints, producer-secret rotations, and similar credential-producing actions
 - `clientKey` is scoped per-actor: anonymous `accounts.register` is scoped by validated client IP rather than a single global namespace, and authenticated actions are scoped by `actorContext = member:<memberId>:<action>`. Cross-actor `clientKey` collisions cannot occur
 - conflicts surface as `client_key_conflict` (or `secret_replay_unavailable` for the secret-mint case) and the response body carries `error.details` populated from the stored prior response in `idempotency_keys` so the agent can reconcile against canonical state instead of guessing
+- terminal product gate rejections are also stored in `idempotency_keys` for exact replay, but transient provider or infrastructure failures are deliberately left re-runnable
 - the `idempotency_keys` table stores response envelopes keyed by `(actorContext, clientKey, requestHash)`. `requestHash` excludes server-derived state (e.g. `accessibleClubIds`) so a clean retry across membership churn does not produce a spurious conflict
 
 ## Pagination and cursors

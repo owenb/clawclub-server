@@ -68,6 +68,7 @@ export const ErrorCodes = {
   not_available: 'not_available',
   not_found: 'not_found',
   not_implemented: 'not_implemented',
+  payload_timeout: 'payload_timeout',
   payload_too_large: 'payload_too_large',
   profile_not_found: 'profile_not_found',
   profile_generation_unavailable: 'profile_generation_unavailable',
@@ -89,7 +90,7 @@ export const ErrorCodes = {
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
 
-export const ERROR_STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 501 | 503> = {
+export const ERROR_STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 408 | 409 | 413 | 422 | 429 | 500 | 501 | 503> = {
   account_not_active: 403,
   application_blocked: 403,
   application_already_decided: 409,
@@ -159,6 +160,7 @@ export const ERROR_STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 409 | 413 |
   not_available: 501,
   not_found: 404,
   not_implemented: 501,
+  payload_timeout: 408,
   payload_too_large: 413,
   profile_not_found: 404,
   profile_generation_unavailable: 503,

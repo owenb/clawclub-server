@@ -30,6 +30,7 @@ import {
   wireOptionalBoolean,
   wirePatchString, parsePatchString,
   wireIsoDatetime, parseFutureIsoDatetime,
+  wirePositiveInt32, parsePositiveInt32,
   wireSlug, parseSlug,
   contentKind,
   membershipRole, membershipCreateInitialStatus,
@@ -58,9 +59,8 @@ import {
   type ActionResult,
 } from './registry.ts';
 
-const wireMemberCap = z.number().int().min(1).nullable().optional()
-  .describe('Explicit member cap. Required when usesFreeAllowance is false.');
-const parseMemberCap = z.number().int().min(1).nullable().optional();
+const wireMemberCap = wirePositiveInt32('Explicit member cap. Required when usesFreeAllowance is false. Must fit a Postgres integer.');
+const parseMemberCap = parsePositiveInt32();
 const SUPERADMIN_DEFAULT_PAGINATION = paginationFields({ defaultLimit: 8, maxLimit: 20 });
 const SUPERADMIN_CLUBS_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
 const SUPERADMIN_ACCESS_TOKENS_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
@@ -462,6 +462,11 @@ const superadminClubsCreate: ActionDefinition = {
         },
         repository: ctx.repository,
         runLlmGate: ctx.runLlmGate,
+        idempotency: {
+          clientKey: parsed.clientKey,
+          actorContext,
+          requestValue,
+        },
       });
     }
 
@@ -764,6 +769,7 @@ const superadminClubsSetDirectoryListed: ActionDefinition = {
     if (!club) {
       throw new AppError('club_not_found', 'Club not found.');
     }
+    ctx.directoryCache.invalidate();
     return clubScopedResult(club, { club });
   },
 };
@@ -1131,6 +1137,13 @@ const superadminTokensRevoke: ActionDefinition = {
     kind: 'naturallyIdempotent',
     reason: 'Revoking the same token repeatedly leaves the same revoked token state and does not append audit rows.',
   },
+  businessErrors: [
+    {
+      code: 'token_not_found',
+      meaning: 'The token was not found for the specified member.',
+      recovery: 'Refetch superadmin.accessTokens.list for that member and retry only with a visible tokenId.',
+    },
+  ],
 
   input: defineInput({
     wire: z.object({
@@ -1451,9 +1464,9 @@ const superadminNotificationProducersCreate: ActionDefinition = {
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this producer secret mint. Plaintext secrets are never replayed.')),
       producerId: wireRequiredString.describe('Stable producer identifier used in headers and registry rows.'),
       namespacePrefix: wireOptionalString.describe('Required topic prefix for this producer. Use empty string only for core-like internal producers.'),
-      burstLimit: z.number().int().min(1).nullable().optional().describe('Optional burst cap applied to this producer.'),
-      hourlyLimit: z.number().int().min(1).nullable().optional().describe('Optional hourly cap applied to this producer.'),
-      dailyLimit: z.number().int().min(1).nullable().optional().describe('Optional daily cap applied to this producer.'),
+      burstLimit: wirePositiveInt32('Optional burst cap applied to this producer.'),
+      hourlyLimit: wirePositiveInt32('Optional hourly cap applied to this producer.'),
+      dailyLimit: wirePositiveInt32('Optional daily cap applied to this producer.'),
       topics: boundedArray(notificationProducerTopicInput, {
         minItems: 1,
         maxItems: 100,
@@ -1464,9 +1477,9 @@ const superadminNotificationProducersCreate: ActionDefinition = {
       clientKey: parseRequiredString,
       producerId: parseRequiredString,
       namespacePrefix: parseTrimmedNullableString.transform((value) => value ?? ''),
-      burstLimit: z.number().int().min(1).nullable().optional(),
-      hourlyLimit: z.number().int().min(1).nullable().optional(),
-      dailyLimit: z.number().int().min(1).nullable().optional(),
+      burstLimit: parsePositiveInt32(),
+      hourlyLimit: parsePositiveInt32(),
+      dailyLimit: parsePositiveInt32(),
       topics: boundedArray(z.object({
         topic: parseRequiredString,
         deliveryClass: notificationDeliveryClass,

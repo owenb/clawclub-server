@@ -170,6 +170,13 @@ const tokensRevoke: ActionDefinition = {
     kind: 'naturallyIdempotent',
     reason: 'Revocation sets revoked_at once with coalesce; repeating the same token revoke leaves the same token state.',
   },
+  businessErrors: [
+    {
+      code: 'token_not_found',
+      meaning: 'The token was not found inside the actor scope.',
+      recovery: 'Refetch accessTokens.list and retry only with a tokenId owned by this member.',
+    },
+  ],
 
   input: defineInput({
     wire: z.object({

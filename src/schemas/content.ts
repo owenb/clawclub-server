@@ -17,6 +17,7 @@ import {
   wireLargeOptionalString, parseLargeTrimmedNullableString,
   wirePatchString, parsePatchString,
   wireLargePatchString, parseLargePatchString,
+  wireIsoInstant, parseIsoInstant,
   wireContentKinds, parseContentKinds,
   boundedArray,
   contentKind,
@@ -102,6 +103,11 @@ const CONTENT_SEMANTIC_SEARCH_PAGINATION = paginationFields({ defaultLimit: 20, 
 
 const CONTENT_UPDATE_ERRORS = [
   {
+    code: 'content_not_found',
+    meaning: 'The content was not found inside the actor scope.',
+    recovery: 'Refetch content.get/content.list and retry with a visible content id.',
+  },
+  {
     code: 'client_key_conflict',
     meaning: 'The clientKey has already been used with a different content update payload.',
     recovery: 'Generate a fresh clientKey for a different update intent, or resend the exact same payload to replay safely.',
@@ -139,6 +145,10 @@ const CONTENT_UPDATE_ERRORS = [
 ] as const;
 
 function parseIsoDate(value: string, fieldName: string): Date {
+  const validation = parseIsoInstant.safeParse(value);
+  if (!validation.success) {
+    throw new AppError('invalid_input', `${fieldName} must be an ISO 8601 datetime with seconds and timezone`);
+  }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     throw new AppError('invalid_input', `${fieldName} must be a valid ISO 8601 timestamp`);
@@ -253,7 +263,7 @@ const contentsCreate: ActionDefinition = {
       title: wireOptionalString.describe('Title'),
       summary: wireOptionalString.describe('Summary'),
       body: wireLargeOptionalString.describe('Body text'),
-      expiresAt: wireOptionalString.describe('ISO 8601 expiration timestamp'),
+      expiresAt: wireIsoInstant.nullable().optional().describe('ISO 8601 expiration timestamp with seconds and timezone'),
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Idempotency key for this content creation.')),
       event: wireEventFieldsCreate.describe('Required when kind=event.'),
     }),
@@ -264,7 +274,7 @@ const contentsCreate: ActionDefinition = {
       title: parseTrimmedNullableString.default(null),
       summary: parseTrimmedNullableString.default(null),
       body: parseLargeTrimmedNullableString.default(null),
-      expiresAt: parseTrimmedNullableString.default(null),
+      expiresAt: parseIsoInstant.nullable().optional().default(null),
       clientKey: parseTrimmedNullableOpaqueString.default(null),
       event: parseEventFieldsCreate,
     }),
@@ -475,7 +485,7 @@ const contentsUpdate: ActionDefinition = {
       title: wirePatchString.describe('New title'),
       summary: wirePatchString.describe('New summary'),
       body: wireLargePatchString.describe('New body text'),
-      expiresAt: wirePatchString.describe('New expiration timestamp'),
+      expiresAt: wireIsoInstant.nullable().optional().describe('New expiration timestamp with seconds and timezone'),
       event: wireEventFieldsPatch.describe('Event patch fields (only valid for event contents)'),
     }),
     parse: z.object({
@@ -484,7 +494,7 @@ const contentsUpdate: ActionDefinition = {
       title: parsePatchString,
       summary: parsePatchString,
       body: parseLargePatchString,
-      expiresAt: parsePatchString,
+      expiresAt: parseIsoInstant.nullable().optional(),
       event: parseEventFieldsPatch,
     }).refine(input => {
       const { id: _id, clientKey: _clientKey, ...patch } = input;
@@ -591,6 +601,11 @@ const contentsRemove: ActionDefinition = {
   authorizationNote: 'Only the original author may remove their own content.',
   businessErrors: [
     {
+      code: 'content_not_found',
+      meaning: 'The content was not found inside the actor scope.',
+      recovery: 'Refetch content.get/content.list and retry with a visible content id.',
+    },
+    {
       code: 'forbidden_scope',
       meaning: 'The content exists, but the caller is not the author.',
       recovery: 'Do not retry as this actor. Ask the author or a club admin to remove the content.',
@@ -648,6 +663,18 @@ const contentGetThread: ActionDefinition = {
   description: 'Read a public content thread by thread ID or any content ID inside it.',
   auth: 'member',
   safety: 'read_only',
+  businessErrors: [
+    {
+      code: 'content_not_found',
+      meaning: 'No content with that id was found inside the actor scope.',
+      recovery: 'Refetch content.list and retry with a visible contentId.',
+    },
+    {
+      code: 'thread_not_found',
+      meaning: 'No thread with that id was found inside the actor scope.',
+      recovery: 'Refetch content.list and retry with a visible threadId.',
+    },
+  ],
 
   input: defineInput({
     wire: z.object({

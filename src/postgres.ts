@@ -24,6 +24,7 @@ import {
   type NotificationItem,
   type NotificationReceipt,
 } from './repository.ts';
+import type { ErrorCode } from './errors.ts';
 import { membershipScopes } from './actors.ts';
 import { withTransaction, type DbClient } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
@@ -56,7 +57,14 @@ import {
   encodeCursor as paginationEncodeCursor,
   decodeCursor as paginationDecodeCursor,
 } from './schemas/fields.ts';
-import { lookupIdempotency, throwSecretReplayUnavailable, withClientKeyBarrier, withIdempotency } from './idempotency.ts';
+import {
+  isStoredTerminalError,
+  lookupIdempotency,
+  storeTerminalIdempotencyError,
+  throwSecretReplayUnavailable,
+  withClientKeyBarrier,
+  withIdempotency,
+} from './idempotency.ts';
 import {
   NOTIFICATIONS_PAGE_SIZE,
   encodeNotificationCursor,
@@ -1365,6 +1373,21 @@ export function createRepository(
     async peekIdempotencyReplay(input) {
       const existing = await lookupIdempotency<unknown>(pool, input);
       return existing.status === 'hit';
+    },
+    async lookupIdempotencyTerminalError(input) {
+      const existing = await lookupIdempotency<unknown>(pool, input);
+      if (existing.status !== 'hit' || !isStoredTerminalError(existing.responseValue)) {
+        return null;
+      }
+      return existing.responseValue.error;
+    },
+    async storeIdempotencyTerminalError(input) {
+      await storeTerminalIdempotencyError(pool, {
+        ...input,
+        error: new AppError(input.error.code as ErrorCode, input.error.message, {
+          ...(input.error.details !== undefined ? { details: input.error.details } : {}),
+        }),
+      });
     },
     withClientKeyBarrier: (input) => withClientKeyBarrier(pool, input),
     enforceEmbeddingQueryQuota: (input) => clubs.enforceEmbeddingQueryQuota(input),

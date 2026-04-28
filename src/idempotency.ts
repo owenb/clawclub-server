@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Client, type ClientConfig, type Pool } from 'pg';
 import type { DbClient } from './db.ts';
-import { AppError } from './errors.ts';
+import { AppError, type ErrorCode } from './errors.ts';
 import { logger } from './logger.ts';
 
 function hashRequest(value: unknown): string {
@@ -11,6 +11,48 @@ function hashRequest(value: unknown): string {
 type IdempotencyLookupResult<T> =
   | { status: 'miss' }
   | { status: 'hit'; responseValue: T };
+
+export type StoredTerminalError = {
+  __clawclubTerminalError: true;
+  error: {
+    code: ErrorCode;
+    message: string;
+    details?: unknown;
+  };
+};
+
+export function makeStoredTerminalError(error: AppError): StoredTerminalError {
+  return {
+    __clawclubTerminalError: true,
+    error: {
+      code: error.code,
+      message: error.message,
+      ...(error.details !== undefined ? { details: error.details } : {}),
+    },
+  };
+}
+
+export function isStoredTerminalError(value: unknown): value is StoredTerminalError {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && (value as { __clawclubTerminalError?: unknown }).__clawclubTerminalError === true
+      && typeof (value as { error?: { code?: unknown } }).error?.code === 'string'
+      && typeof (value as { error?: { message?: unknown } }).error?.message === 'string',
+  );
+}
+
+export function appErrorFromStoredTerminal(value: StoredTerminalError): AppError {
+  return new AppError(value.error.code, value.error.message, {
+    ...(value.error.details !== undefined ? { details: value.error.details } : {}),
+  });
+}
+
+function conflictDetailsForStoredValue(value: unknown): unknown {
+  return isStoredTerminalError(value)
+    ? { priorOutcome: { ok: false, error: value.error } }
+    : value;
+}
 
 export function throwSecretReplayUnavailable(details: unknown): never {
   throw new AppError(
@@ -51,7 +93,7 @@ export async function lookupIdempotency<T>(
     throw new AppError(
       'client_key_conflict',
       'This clientKey was already used for a different request.',
-      { details: row.response_envelope },
+      { details: conflictDetailsForStoredValue(row.response_envelope) },
     );
   }
 
@@ -67,6 +109,28 @@ export async function lookupIdempotency<T>(
     status: 'hit',
     responseValue: row.response_envelope,
   };
+}
+
+export async function storeTerminalIdempotencyError(
+  client: DbClient,
+  input: {
+    clientKey: string;
+    actorContext: string;
+    requestValue: unknown;
+    error: AppError;
+  },
+): Promise<void> {
+  const requestHash = hashRequest(input.requestValue);
+  await client.query(
+    `insert into idempotency_keys (client_key, actor_context, request_hash, response_envelope)
+     values ($1, $2, $3, $4::jsonb)`,
+    [
+      input.clientKey,
+      input.actorContext,
+      requestHash,
+      JSON.stringify(makeStoredTerminalError(input.error)),
+    ],
+  );
 }
 
 export async function withIdempotency<T>(
@@ -87,6 +151,9 @@ export async function withIdempotency<T>(
     requestValue: input.requestValue,
   });
   if (existing.status === 'hit') {
+    if (isStoredTerminalError(existing.responseValue)) {
+      throw appErrorFromStoredTerminal(existing.responseValue);
+    }
     if (input.onReplay) {
       return await input.onReplay(existing.responseValue);
     }

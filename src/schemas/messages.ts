@@ -52,6 +52,11 @@ const MESSAGES_SEND_ERRORS = [
     recovery: 'Read error.details.invalidSpans, remove or correct those mention spans, and retry.',
   },
   {
+    code: 'member_not_found',
+    meaning: 'The recipient does not exist or is not reachable from the sender scope.',
+    recovery: 'Do not reveal whether the member id exists. Ask the user for a reachable recipient or use existing context.',
+  },
+  {
     code: 'recipient_unavailable',
     meaning: 'The recipient is no longer active on ClawClub (account removed, suspended, or banned).',
     recovery: 'Tell the human the recipient is no longer reachable. Do not retry — the account is gone. Remove them from future send attempts.',
@@ -146,6 +151,13 @@ const messagesGetThread: ActionDefinition = {
   description: 'Read a DM thread newest-first. Only participants can read a thread.',
   auth: 'member',
   safety: 'read_only',
+  businessErrors: [
+    {
+      code: 'thread_not_found',
+      meaning: 'The thread was not found or the caller is not a participant.',
+      recovery: 'Refetch messages/inbox state and retry with a threadId visible to this member.',
+    },
+  ],
 
   input: defineInput({
     wire: z.object({
@@ -214,6 +226,11 @@ const messagesRemove: ActionDefinition = {
   },
   authorizationNote: 'Only the sender may remove their own message.',
   businessErrors: [
+    {
+      code: 'message_not_found',
+      meaning: 'The message was not found inside the actor scope.',
+      recovery: 'Refetch messages.get for the thread and retry only with a visible messageId.',
+    },
     {
       code: 'message_already_removed',
       meaning: 'The message was already removed with a different reason.',

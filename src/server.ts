@@ -36,6 +36,8 @@ export { DEFAULT_SERVER_LIMITS } from './config/defaults.ts';
 const EXPOSED_RESPONSE_HEADERS = 'ClawClub-Version, ClawClub-Schema-Hash';
 const REGISTRATION_DISCOVER_RATE_LIMIT = 20;
 const REGISTRATION_DISCOVER_RATE_LIMIT_WINDOW_MS = 60_000;
+const BOOTSTRAP_ROUTE_RATE_LIMIT = 120;
+const BOOTSTRAP_ROUTE_RATE_LIMIT_WINDOW_MS = 60_000;
 const STALE_CLIENT_MESSAGE = [
   'The ClawClub API schema has changed since your agent last fetched it. Your cached schema is out of date, which can cause invalid_input errors and missing capabilities. To recover, do the following and then retry this request:',
   '',
@@ -470,6 +472,22 @@ function getClientIp(request: http.IncomingMessage): string {
   });
 }
 
+function consumeRateLimit(
+  limits: Map<string, RegistrationDiscoverRateLimitEntry>,
+  key: string,
+  max: number,
+  windowMs: number,
+): boolean {
+  const now = Date.now();
+  const current = limits.get(key);
+  const entry = !current || current.windowStart <= now - windowMs
+    ? { count: 0, windowStart: now }
+    : current;
+  entry.count += 1;
+  limits.set(key, entry);
+  return entry.count <= max;
+}
+
 function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
   return {
     async waitForUpdate({ timeoutMs, signal }: { timeoutMs: number; signal?: AbortSignal }) {
@@ -562,6 +580,7 @@ export function createServer(options: {
   const activeStreams = new Map<string, StreamHandle[]>();
   // TODO(#scale): replace this process-local guard before running multiple API instances.
   const registrationDiscoverRateLimits = new Map<string, RegistrationDiscoverRateLimitEntry>();
+  const bootstrapRouteRateLimits = new Map<string, RegistrationDiscoverRateLimitEntry>();
   const streamScopeRefreshMs = options.streamScopeRefreshMs ?? 60_000;
   const dispatcher = buildDispatcher({ repository, llmGate: options.llmGate, directoryCache });
   const sockets = new Set<net.Socket>();
@@ -658,6 +677,9 @@ export function createServer(options: {
               ...(error.details !== undefined ? { details: error.details } : {}),
               ...(requestTemplate ? { requestTemplate } : {}),
             },
+          }, {
+            extraHeaders: error.closeConnection ? { connection: 'close' } : undefined,
+            destroySocketAfterResponse: error.closeConnection === true,
           });
           return;
         }
@@ -953,6 +975,21 @@ export function createServer(options: {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/schema') {
+      if (!consumeRateLimit(
+        bootstrapRouteRateLimits,
+        `${getClientIp(request)}:/api/schema`,
+        BOOTSTRAP_ROUTE_RATE_LIMIT,
+        BOOTSTRAP_ROUTE_RATE_LIMIT_WINDOW_MS,
+      )) {
+        writeJson(request, response, 429, {
+          ok: false,
+          error: {
+            code: 'rate_limited',
+            message: 'Too many schema requests from this IP. Retry after 60 seconds.',
+          },
+        }, { extraHeaders: { 'retry-after': '60' } });
+        return;
+      }
       try {
         const schema = getSchemaPayload();
         writeJson(request, response, 200, { ok: true, data: schema });
@@ -984,6 +1021,21 @@ export function createServer(options: {
 
     const skillCanonicalPath = normalizedPath.replace(/\/+$/, '');
     if (request.method === 'GET' && (skillCanonicalPath === '/skill' || skillCanonicalPath === '/skill.md')) {
+      if (!consumeRateLimit(
+        bootstrapRouteRateLimits,
+        `${getClientIp(request)}:${skillCanonicalPath}`,
+        BOOTSTRAP_ROUTE_RATE_LIMIT,
+        BOOTSTRAP_ROUTE_RATE_LIMIT_WINDOW_MS,
+      )) {
+        writeJson(request, response, 429, {
+          ok: false,
+          error: {
+            code: 'rate_limited',
+            message: 'Too many skill requests from this IP. Retry after 60 seconds.',
+          },
+        }, { extraHeaders: { 'retry-after': '60' } });
+        return;
+      }
       const baseUrl = resolveBaseUrl(request);
       const schemaHash = (getSchemaPayload() as { schemaHash: string }).schemaHash;
       writeCachedText(
@@ -1105,15 +1157,13 @@ export function createServer(options: {
       }
 
       if (isRegistrationDiscoverRequest(body)) {
-        const now = Date.now();
         const key = getClientIp(request);
-        const current = registrationDiscoverRateLimits.get(key);
-        const entry = !current || current.windowStart <= now - REGISTRATION_DISCOVER_RATE_LIMIT_WINDOW_MS
-          ? { count: 0, windowStart: now }
-          : current;
-        entry.count += 1;
-        registrationDiscoverRateLimits.set(key, entry);
-        if (entry.count > REGISTRATION_DISCOVER_RATE_LIMIT) {
+        if (!consumeRateLimit(
+          registrationDiscoverRateLimits,
+          key,
+          REGISTRATION_DISCOVER_RATE_LIMIT,
+          REGISTRATION_DISCOVER_RATE_LIMIT_WINDOW_MS,
+        )) {
           writeJson(request, response, 429, {
             ok: false,
             error: {

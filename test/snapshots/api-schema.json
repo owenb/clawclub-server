@@ -5,6 +5,9 @@
       "auth": "member",
       "description": "Create a new bearer token.",
       "domain": "accessTokens",
+      "idempotencyStrategy": {
+        "kind": "secretMint"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -88,7 +91,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "accessTokens.list",
@@ -182,13 +188,27 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "accessTokens.revoke",
       "auth": "member",
+      "businessErrors": [
+        {
+          "code": "token_not_found",
+          "meaning": "The token was not found inside the actor scope.",
+          "recovery": "Refetch accessTokens.list and retry only with a tokenId owned by this member."
+        }
+      ],
       "description": "Revoke a bearer token.",
       "domain": "accessTokens",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Revocation sets revoked_at once with coalesce; repeating the same token revoke leaves the same token state."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -261,7 +281,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "accounts.register",
@@ -657,7 +680,10 @@
           }
         ]
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "accounts.updateContactEmail",
@@ -671,6 +697,10 @@
       ],
       "description": "Replace the member contact email used for out-of-band admin contact.",
       "domain": "accounts",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -737,7 +767,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "accounts.updateIdentity",
@@ -745,6 +778,10 @@
       "authorizationNote": "Updates own global identity only.",
       "description": "Update the current actor’s global identity fields.",
       "domain": "accounts",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -784,7 +821,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "clubadmin.applications.decide",
@@ -824,6 +864,10 @@
       ],
       "description": "Accept, decline, or ban one club application.",
       "domain": "clubadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -1267,6 +1311,9 @@
         "type": "object"
       },
       "safety": "mutating",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -1711,6 +1758,9 @@
         "type": "object"
       },
       "safety": "read_only",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -1729,6 +1779,11 @@
           "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
           "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
+        },
+        {
+          "code": "application_not_found",
+          "meaning": "The application was not found in the specified club.",
+          "recovery": "Refetch clubadmin.applications.list and retry with a current applicationId."
         }
       ],
       "description": "List club applications in the specified club.",
@@ -2286,6 +2341,9 @@
         "type": "object"
       },
       "safety": "read_only",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -2373,6 +2431,9 @@
         "type": "object"
       },
       "safety": "read_only",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -2405,6 +2466,10 @@
       ],
       "description": "Set whether an active club appears in the public directory. Changes appear within roughly 60 seconds because the public directory is TTL-cached.",
       "domain": "clubadmin",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Repeated calls with the same listed value leave the same directory-listed state."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -2554,6 +2619,9 @@
         "type": "object"
       },
       "safety": "mutating",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -2581,6 +2649,10 @@
       ],
       "description": "Update club text as the club owner or a superadmin.",
       "domain": "clubadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -2748,6 +2820,9 @@
         "type": "object"
       },
       "safety": "mutating",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -2770,6 +2845,10 @@
       ],
       "description": "Remove any content in the specified club (moderation).",
       "domain": "clubadmin",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Repeated moderation removes leave the same removed content state; divergent reasons are rejected by content.remove."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -3196,6 +3275,9 @@
         "type": "object"
       },
       "safety": "mutating",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -3483,6 +3565,9 @@
         "type": "object"
       },
       "safety": "read_only",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -3501,6 +3586,11 @@
           "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
           "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
+        },
+        {
+          "code": "member_not_found",
+          "meaning": "No active member with that id was found in the specified club.",
+          "recovery": "Refetch clubadmin.members.list and retry with a current memberId."
         }
       ],
       "description": "List accessible members in the specified club.",
@@ -3899,6 +3989,9 @@
         "type": "object"
       },
       "safety": "read_only",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -3931,6 +4024,10 @@
       ],
       "description": "Update a member’s role and/or membership status inside one club.",
       "domain": "clubadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -4132,6 +4229,9 @@
         "type": "object"
       },
       "safety": "mutating",
+      "scope": {
+        "strategy": "rawClubId"
+      },
       "scopeRules": [
         "clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here."
       ]
@@ -4562,7 +4662,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "clubs.applications.list",
@@ -5053,7 +5156,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "clubs.applications.revise",
@@ -5077,6 +5183,10 @@
       ],
       "description": "Replace the saved draft on a revision_required application and rerun the admission gate. This is only allowed while the applicant still owns the draft.",
       "domain": "clubs",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -5531,7 +5641,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "clubs.applications.withdraw",
@@ -5545,6 +5658,10 @@
       ],
       "description": "Withdraw a live application owned by the authenticated member.",
       "domain": "clubs",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -5972,7 +6089,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "clubs.apply",
@@ -6031,6 +6151,10 @@
       ],
       "description": "Submit a new application to a club using the caller’s existing bearer-authenticated account.",
       "domain": "clubs",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -6497,7 +6621,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "clubs.create",
@@ -6521,6 +6648,10 @@
       ],
       "description": "Create a new club owned by the authenticated member.",
       "domain": "clubs",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -6688,7 +6819,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "content.create",
@@ -6733,6 +6867,10 @@
       ],
       "description": "Create public content or respond inside an existing content thread.",
       "domain": "content",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -6758,7 +6896,7 @@
             "properties": {
               "capacity": {
                 "description": "Optional attendee cap",
-                "maximum": 9007199254740991,
+                "maximum": 2147483647,
                 "minimum": 1,
                 "nullable": true,
                 "type": "integer"
@@ -6797,8 +6935,7 @@
             "type": "object"
           },
           "expiresAt": {
-            "description": "ISO 8601 expiration timestamp",
-            "maxLength": 2000,
+            "description": "ISO 8601 expiration timestamp with seconds and timezone",
             "nullable": true,
             "type": "string"
           },
@@ -7239,11 +7376,26 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "content.get",
       "auth": "member",
+      "businessErrors": [
+        {
+          "code": "content_not_found",
+          "meaning": "No content with that id was found inside the actor scope.",
+          "recovery": "Refetch content.list and retry with a visible contentId."
+        },
+        {
+          "code": "thread_not_found",
+          "meaning": "No thread with that id was found inside the actor scope.",
+          "recovery": "Refetch content.list and retry with a visible threadId."
+        }
+      ],
       "description": "Read a public content thread by thread ID or any content ID inside it.",
       "domain": "content",
       "input": {
@@ -7723,7 +7875,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "content.list",
@@ -8319,13 +8474,21 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "content.remove",
       "auth": "member",
       "authorizationNote": "Only the original author may remove their own content.",
       "businessErrors": [
+        {
+          "code": "content_not_found",
+          "meaning": "The content was not found inside the actor scope.",
+          "recovery": "Refetch content.get/content.list and retry with a visible content id."
+        },
         {
           "code": "forbidden_scope",
           "meaning": "The content exists, but the caller is not the author.",
@@ -8339,6 +8502,10 @@
       ],
       "description": "Remove content inside a public content thread (author only).",
       "domain": "content",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Removing the same content twice leaves the database in the same removed state; divergent terminal retries raise content_already_removed."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -8758,7 +8925,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "content.searchBySemanticSimilarity",
@@ -9317,7 +9487,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "content.setLoopState",
@@ -9337,6 +9510,10 @@
       ],
       "description": "Open or close an ask, gift, service, or opportunity (author only).",
       "domain": "content",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Setting a loop to the same open/closed state repeatedly leaves one current published loop state."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -9759,13 +9936,21 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "content.update",
       "auth": "member",
       "authorizationNote": "Only the original author may update. At least one field must change.",
       "businessErrors": [
+        {
+          "code": "content_not_found",
+          "meaning": "The content was not found inside the actor scope.",
+          "recovery": "Refetch content.get/content.list and retry with a visible content id."
+        },
         {
           "code": "client_key_conflict",
           "meaning": "The clientKey has already been used with a different content update payload.",
@@ -9804,6 +9989,10 @@
       ],
       "description": "Update existing public content (author only).",
       "domain": "content",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -9824,7 +10013,7 @@
             "properties": {
               "capacity": {
                 "description": "Optional attendee cap. Null to clear.",
-                "maximum": 9007199254740991,
+                "maximum": 2147483647,
                 "minimum": 1,
                 "nullable": true,
                 "type": "integer"
@@ -9863,8 +10052,7 @@
             "type": "object"
           },
           "expiresAt": {
-            "description": "New expiration timestamp",
-            "maxLength": 2000,
+            "description": "New expiration timestamp with seconds and timezone",
             "nullable": true,
             "type": "string"
           },
@@ -10290,7 +10478,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "directory.list",
@@ -10431,7 +10622,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "events.list",
@@ -10987,12 +11181,20 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "events.setRsvp",
       "auth": "member",
       "businessErrors": [
+        {
+          "code": "event_not_found",
+          "meaning": "The event content was not found inside the actor scope.",
+          "recovery": "Refetch events.list or content.get and retry with a current eventId."
+        },
         {
           "code": "invalid_state",
           "meaning": "The target content exists but is not an event.",
@@ -11006,6 +11208,10 @@
       ],
       "description": "Create, change, or clear the actor’s RSVP to a specific event. RSVP updates and cancellations close once the event starts and return event_rsvp_closed.",
       "domain": "events",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "RSVP is a set operation for the actor/event pair; repeating the same response leaves one current RSVP row and no extra state transition."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -11437,7 +11643,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "invitations.issue",
@@ -11496,6 +11705,10 @@
       ],
       "description": "Issue a new invitation for a candidate in a specific club.",
       "domain": "invitations",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -11661,7 +11874,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "rawClubId"
+      }
     },
     {
       "action": "invitations.list",
@@ -11820,7 +12036,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "rawClubId"
+      }
     },
     {
       "action": "invitations.redeem",
@@ -11874,6 +12093,10 @@
       ],
       "description": "Redeem an external invitation code and submit the linked club application using the caller’s existing account.",
       "domain": "invitations",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -12332,7 +12555,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "invitations.revoke",
@@ -12361,6 +12587,10 @@
       ],
       "description": "Revoke one invitation issued by the caller or administered by the caller.",
       "domain": "invitations",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -12484,7 +12714,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "members.get",
@@ -12692,7 +12925,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "members.list",
@@ -12975,7 +13211,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "members.searchByFullText",
@@ -13187,7 +13426,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "members.searchBySemanticSimilarity",
@@ -13406,7 +13648,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "members.updateProfile",
@@ -13441,6 +13686,10 @@
       ],
       "description": "Update the current actor club-scoped profile fields for one club.",
       "domain": "members",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -13668,11 +13917,21 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "messages.get",
       "auth": "member",
+      "businessErrors": [
+        {
+          "code": "thread_not_found",
+          "meaning": "The thread was not found or the caller is not a participant.",
+          "recovery": "Refetch messages/inbox state and retry with a threadId visible to this member."
+        }
+      ],
       "description": "Read a DM thread newest-first. Only participants can read a thread.",
       "domain": "messages",
       "input": {
@@ -13955,13 +14214,21 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "messages.remove",
       "auth": "member",
       "authorizationNote": "Only the sender may remove their own message.",
       "businessErrors": [
+        {
+          "code": "message_not_found",
+          "meaning": "The message was not found inside the actor scope.",
+          "recovery": "Refetch messages.get for the thread and retry only with a visible messageId."
+        },
         {
           "code": "message_already_removed",
           "meaning": "The message was already removed with a different reason.",
@@ -13970,6 +14237,10 @@
       ],
       "description": "Remove a DM (sender only).",
       "domain": "messages",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Removing the same message twice leaves one removal row; same-reason replay is a semantic no-op and divergent reasons raise message_already_removed."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -14025,7 +14296,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "messages.send",
@@ -14047,6 +14321,11 @@
           "recovery": "Read error.details.invalidSpans, remove or correct those mention spans, and retry."
         },
         {
+          "code": "member_not_found",
+          "meaning": "The recipient does not exist or is not reachable from the sender scope.",
+          "recovery": "Do not reveal whether the member id exists. Ask the user for a reachable recipient or use existing context."
+        },
+        {
           "code": "recipient_unavailable",
           "meaning": "The recipient is no longer active on ClawClub (account removed, suspended, or banned).",
           "recovery": "Tell the human the recipient is no longer reachable. Do not retry — the account is gone. Remove them from future send attempts."
@@ -14059,6 +14338,10 @@
       ],
       "description": "Send a direct message to another member. Requires at least one shared club, or an existing thread between the participants.",
       "domain": "messages",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -14241,6 +14524,9 @@
         "type": "object"
       },
       "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      },
       "scopeRules": [
         "DMs are not club-scoped. Do not send clubId when calling messages.send.",
         "A shared club is only required to start a new thread; existing threads remain replyable even if shared clubs later drop to zero."
@@ -14339,7 +14625,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "session.getContext",
@@ -14359,7 +14648,10 @@
         "properties": {},
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.accessTokens.create",
@@ -14367,6 +14659,9 @@
       "authorizationNote": "Requires superadmin global role. The minted token is returned exactly once in plaintext; deliver it out-of-band.",
       "description": "Mint a fresh bearer token for an existing active member. Recovery path for lost or never-persisted tokens.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "secretMint"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -14457,7 +14752,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.accessTokens.list",
@@ -14559,13 +14857,27 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.accessTokens.revoke",
       "auth": "superadmin",
+      "businessErrors": [
+        {
+          "code": "token_not_found",
+          "meaning": "The token was not found for the specified member.",
+          "recovery": "Refetch superadmin.accessTokens.list for that member and retry only with a visible tokenId."
+        }
+      ],
       "description": "Revoke a bearer token for a specific member.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Revoking the same token repeatedly leaves the same revoked token state and does not append audit rows."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -14644,7 +14956,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.clubs.archive",
@@ -14658,6 +14973,10 @@
       ],
       "description": "Archive a club (superadmin only).",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -14807,7 +15126,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.clubs.assignOwner",
@@ -14821,6 +15143,10 @@
       ],
       "description": "Assign a new owner to a club (superadmin only).",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -14976,13 +15302,20 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.clubs.create",
       "auth": "superadmin",
       "description": "Create a new club (superadmin only).",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -14998,8 +15331,8 @@
             "type": "string"
           },
           "memberCap": {
-            "description": "Explicit member cap. Required when usesFreeAllowance is false.",
-            "maximum": 9007199254740991,
+            "description": "Explicit member cap. Required when usesFreeAllowance is false. Must fit a Postgres integer.",
+            "maximum": 2147483647,
             "minimum": 1,
             "nullable": true,
             "type": "integer"
@@ -15167,7 +15500,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.clubs.get",
@@ -15453,7 +15789,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.clubs.list",
@@ -15626,13 +15965,20 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.clubs.remove",
       "auth": "superadmin",
       "description": "Physically remove an archived club after writing one restore archive row.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -15730,7 +16076,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.clubs.setDirectoryListed",
@@ -15744,6 +16093,10 @@
       ],
       "description": "Set whether any club, including an archived club, appears in the public directory. Changes appear within roughly 60 seconds because the public directory is TTL-cached.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Repeated calls with the same listed value leave the same directory-listed state."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -15892,7 +16245,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "handler"
+      }
     },
     {
       "action": "superadmin.clubs.update",
@@ -15906,6 +16262,10 @@
       ],
       "description": "Update mutable fields on a club (superadmin only).",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -15926,8 +16286,8 @@
             "type": "string"
           },
           "memberCap": {
-            "description": "Explicit member cap. Required when usesFreeAllowance is false.",
-            "maximum": 9007199254740991,
+            "description": "Explicit member cap. Required when usesFreeAllowance is false. Must fit a Postgres integer.",
+            "maximum": 2147483647,
             "minimum": 1,
             "nullable": true,
             "type": "integer"
@@ -16083,7 +16443,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.content.list",
@@ -16310,7 +16673,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.diagnostics.getHealth",
@@ -16490,7 +16856,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.members.createWithAccessToken",
@@ -16504,6 +16873,9 @@
       ],
       "description": "Create a new platform member with a bearer token (no club membership).",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "secretMint"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -16609,7 +16981,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.members.get",
@@ -16836,7 +17211,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.members.list",
@@ -16914,13 +17292,20 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.members.remove",
       "auth": "superadmin",
       "description": "Permanently remove a member and the rows that should disappear with them.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -17114,7 +17499,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.memberships.create",
@@ -17133,6 +17521,10 @@
       ],
       "description": "Add an existing member to a club (bypasses club admin requirement).",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -17328,7 +17720,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.messages.get",
@@ -17558,7 +17953,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.messages.list",
@@ -17668,19 +18066,25 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.notificationProducers.create",
       "auth": "superadmin",
       "description": "Register a producer, issue its initial secret, and register its initial topics.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "secretMint"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
           "burstLimit": {
             "description": "Optional burst cap applied to this producer.",
-            "maximum": 9007199254740991,
+            "maximum": 2147483647,
             "minimum": 1,
             "nullable": true,
             "type": "integer"
@@ -17692,14 +18096,14 @@
           },
           "dailyLimit": {
             "description": "Optional daily cap applied to this producer.",
-            "maximum": 9007199254740991,
+            "maximum": 2147483647,
             "minimum": 1,
             "nullable": true,
             "type": "integer"
           },
           "hourlyLimit": {
             "description": "Optional hourly cap applied to this producer.",
-            "maximum": 9007199254740991,
+            "maximum": 2147483647,
             "minimum": 1,
             "nullable": true,
             "type": "integer"
@@ -17873,13 +18277,19 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.notificationProducers.rotateSecret",
       "auth": "superadmin",
       "description": "Rotate a producer secret with dual-secret overlap.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "secretMint"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -17969,13 +18379,20 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.notificationProducers.updateStatus",
       "auth": "superadmin",
       "description": "Enable or disable a producer globally.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Producer status updates set one status value; repeating the same status leaves the same producer state."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -18064,13 +18481,20 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.notificationProducerTopics.updateStatus",
       "auth": "superadmin",
       "description": "Enable or disable a single producer topic.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Producer topic status updates set one status value; repeating the same status leaves the same topic state."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -18147,7 +18571,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.platform.getOverview",
@@ -18225,7 +18652,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.removedClubs.list",
@@ -18332,13 +18762,20 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "superadmin.removedClubs.restore",
       "auth": "superadmin",
       "description": "Restore a previously removed club from its archived payload.",
       "domain": "superadmin",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "required"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -18488,13 +18925,20 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "updates.acknowledge",
       "auth": "member",
       "description": "Acknowledge notifications or mark a DM thread read.",
       "domain": "updates",
+      "idempotencyStrategy": {
+        "kind": "naturallyIdempotent",
+        "reason": "Acknowledging the same notification IDs or thread repeatedly leaves the same acknowledged/read state after the first call."
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -18627,6 +19071,9 @@
         ]
       },
       "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      },
       "scopeRules": [
         "Use target.kind=notification to acknowledge notifications from the personal queue.",
         "Use target.kind=thread to mark a DM thread read without replying."
@@ -19214,7 +19661,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "vouches.create",
@@ -19254,6 +19704,10 @@
       ],
       "description": "Vouch for another member in a club.",
       "domain": "vouches",
+      "idempotencyStrategy": {
+        "kind": "clientKey",
+        "requirement": "optional"
+      },
       "input": {
         "additionalProperties": false,
         "properties": {
@@ -19355,7 +19809,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scope": {
+        "strategy": "none"
+      }
     },
     {
       "action": "vouches.list",
@@ -19554,7 +20011,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scope": {
+        "strategy": "none"
+      }
     }
   ],
   "instancePolicy": {
@@ -20564,6 +21024,10 @@
         "status": 429
       },
       {
+        "code": "payload_timeout",
+        "status": 408
+      },
+      {
         "code": "payload_too_large",
         "status": 413
       },
@@ -20583,5 +21047,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "aae8137c8675928a"
+  "schemaHash": "80f2b2bfc692fd30"
 }

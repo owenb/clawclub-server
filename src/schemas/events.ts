@@ -98,6 +98,11 @@ const eventsSetRsvp: ActionDefinition = {
   },
   businessErrors: [
     {
+      code: 'event_not_found',
+      meaning: 'The event content was not found inside the actor scope.',
+      recovery: 'Refetch events.list or content.get and retry with a current eventId.',
+    },
+    {
       code: 'invalid_state',
       meaning: 'The target content exists but is not an event.',
       recovery: 'Use events.setRsvp only on content where kind=event.',

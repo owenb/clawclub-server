@@ -351,9 +351,22 @@ describe('smoke', () => {
     assert.ok(codes.includes('forbidden_scope'));
     assert.ok(codes.includes('unknown_action'));
     assert.ok(codes.includes('not_found'), 'should include not_found for unsupported routes');
+    assert.ok(codes.includes('payload_timeout'), 'should include payload_timeout for slow or incomplete request bodies');
     assert.equal(codes.includes('too_many_streams'), false, 'should not advertise retired stream-cap errors');
     assert.equal(codes.includes('not_available'), false, 'should not advertise retired capability checks');
     assert.ok(codes.includes('stale_client'), 'should include stale_client for schema refresh mismatches');
+
+    const actions = data.actions as Array<Record<string, unknown>>;
+    const eventsSetRsvp = actions.find(action => action.action === 'events.setRsvp');
+    assert.deepEqual(eventsSetRsvp?.idempotencyStrategy, {
+      kind: 'naturallyIdempotent',
+      reason: 'RSVP is a set operation for the actor/event pair; repeating the same response leaves one current RSVP row and no extra state transition.',
+    });
+    assert.deepEqual(eventsSetRsvp?.scope, { strategy: 'none' });
+    assert.ok(
+      ((eventsSetRsvp?.businessErrors as Array<Record<string, unknown>>) ?? []).some(error => error.code === 'event_not_found'),
+      'events.setRsvp should declare emitted event_not_found',
+    );
 
     // schemaHash covers full payload
     assert.ok(typeof data.schemaHash === 'string');

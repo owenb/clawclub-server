@@ -835,17 +835,18 @@ describe('superadmin.accessTokens.create', () => {
     assert.equal((session.actor as any).member.id, target.id);
   });
 
-  it('date-only expiresAt (ISO 8601 date form) is accepted', async () => {
+  it('date-only expiresAt is rejected because public timestamps require seconds and timezone', async () => {
     const admin = await h.seedSuperadmin('DateOnlyMinter');
     const target = await h.seedMember('Date Only Target');
     const dateOnly = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const result = await createAccessToken(admin.token, {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: target.id,
       expiresAt: dateOnly,
     });
-    const data = result.data as { expiresAt: string | null };
-    assert.ok(data.expiresAt, 'date-only ISO 8601 must be accepted');
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /seconds and explicit timezone/i);
   });
 
   it('past expiresAt returns invalid_input', async () => {

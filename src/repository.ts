@@ -1082,6 +1082,17 @@ export type Repository = {
     actorContext: string;
     requestValue: unknown;
   }): Promise<boolean>;
+  lookupIdempotencyTerminalError?(input: {
+    clientKey: string;
+    actorContext: string;
+    requestValue: unknown;
+  }): Promise<{ code: string; message: string; details?: unknown } | null>;
+  storeIdempotencyTerminalError?(input: {
+    clientKey: string;
+    actorContext: string;
+    requestValue: unknown;
+    error: { code: string; message: string; details?: unknown };
+  }): Promise<void>;
   withClientKeyBarrier?<T>(input: {
     clientKey: string;
     actorContext: string;

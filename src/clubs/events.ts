@@ -96,6 +96,7 @@ type CurrentEventRsvp = {
   version_no: number;
   id: string;
   response: EventRsvpNotificationResponse;
+  note: string | null;
 };
 
 async function readCurrentEventRsvp(
@@ -104,7 +105,7 @@ async function readCurrentEventRsvp(
   membershipId: string,
 ): Promise<CurrentEventRsvp | null> {
   const currentRsvp = await client.query<CurrentEventRsvp>(
-    `select version_no, id, response::text as response
+    `select version_no, id, response::text as response, note
      from current_event_rsvps
      where event_content_id = $1
        and membership_id = $2
@@ -372,6 +373,22 @@ export async function rsvpEvent(pool: Pool, input: {
         liveYesCount: await countLiveYesRsvps(client, input.eventId),
         capacity: event.capacity,
       });
+      const storedNote = input.note ?? null;
+      if (
+        currentRsvp
+        && currentRsvp.response === storedResponse
+        && currentRsvp.note === storedNote
+      ) {
+        const result = await readContentBundle(
+          client,
+          input.eventId,
+          [membership.membershipId],
+          { memberId: input.actorMemberId },
+          { includeExpired: false },
+        );
+        return result.content ? { content: result.content, included: result.included } : null;
+      }
+
       const versionNo = currentRsvp ? currentRsvp.version_no + 1 : 1;
       const supersedesId = currentRsvp?.id ?? null;
 
@@ -386,7 +403,7 @@ export async function rsvpEvent(pool: Pool, input: {
             input.eventId,
             membership.membershipId,
             storedResponse,
-            input.note ?? null,
+            storedNote,
             versionNo,
             supersedesId,
             input.actorMemberId,
@@ -403,7 +420,7 @@ export async function rsvpEvent(pool: Pool, input: {
         attendeeMemberId: input.actorMemberId,
         response: storedResponse,
         previousResponse: currentRsvp?.response ?? null,
-        note: input.note ?? null,
+        note: storedNote,
         createdAt: insertResult.rows[0]?.created_at ?? new Date().toISOString(),
       });
 

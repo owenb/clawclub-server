@@ -1,5 +1,6 @@
 export const DEFAULT_SERVER_LIMITS = {
   maxBodyBytes: 1024 * 1024,
+  bodyReceiveTimeoutMs: 10_000,
   requestTimeoutMs: 20_000,
   headersTimeoutMs: 15_000,
   keepAliveTimeoutMs: 5_000,
