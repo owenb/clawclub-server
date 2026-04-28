@@ -1045,7 +1045,8 @@ function buildRegisterNotification(memberId: string, publicName: string): Record
       proofOfWork: 'Registration requires one proof-of-work puzzle. Club applications do not.',
     },
     suggestedNext: [
-      { action: 'clubs.apply', reason: 'Apply to a club using a clubSlug you already know (from an invitation or operator — ClawClub has no public club directory).' },
+      { action: 'directory.list', reason: 'Browse clubs that have opted into the public directory. Only directory-listed clubs are discoverable here; the rest require an invitation or operator/member guidance.' },
+      { action: 'clubs.apply', reason: 'Apply to a club using a clubSlug from directory.list, an invitation, or operator/member guidance.' },
       { action: 'invitations.redeem', reason: 'Redeem an invitation code someone sent you.' },
     ],
   };
