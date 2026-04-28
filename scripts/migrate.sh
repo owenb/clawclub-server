@@ -8,6 +8,20 @@ DATABASE_URL="$(require_database_url)"
 
 MIGRATION_DIRS=("$ROOT_DIR/db/migrations")
 
+migration_alias_for() {
+  case "$1" in
+    001_member_ephemeral_fk_cascade.sql) printf '%s\n' '019_member_ephemeral_fk_cascade.sql' ;;
+    002_email_nullable.sql) printf '%s\n' '020_email_nullable.sql' ;;
+    003_idempotency_actor_scope.sql) printf '%s\n' '021_idempotency_actor_scope.sql' ;;
+    004_member_registered_via_invite.sql) printf '%s\n' '022_member_registered_via_invite.sql' ;;
+    005_dm_inbox_acknowledged_at.sql) printf '%s\n' '023_dm_inbox_acknowledged_at.sql' ;;
+    006_admission_invariants.sql) printf '%s\n' '024_admission_invariants.sql' ;;
+    007_dm_inbox_drop_acknowledged.sql) printf '%s\n' '025_dm_inbox_drop_acknowledged.sql' ;;
+    008_clubs_directory_listed.sql) printf '%s\n' '026_clubs_directory_listed.sql' ;;
+    *) return 1 ;;
+  esac
+}
+
 shopt -s nullglob
 files=()
 migration_entries=()
@@ -75,6 +89,31 @@ for entry in "${migration_entries[@]}"; do
   if [ "$already_applied" = "1" ]; then
     echo "skip $name"
     continue
+  fi
+
+  alias_name="$(migration_alias_for "$name" || true)"
+  if [[ -n "$alias_name" ]]; then
+    escaped_alias_name="${alias_name//\'/\'\'}"
+    alias_applied="$({
+      psql "$DATABASE_URL" -X -A -t -q \
+        -v ON_ERROR_STOP=1 \
+        -c "select 1 from public.schema_migrations where filename = '${escaped_alias_name}'";
+    } | tr -d '[:space:]')"
+
+    if [ "$alias_applied" = "1" ]; then
+      psql "$DATABASE_URL" -X -q -v ON_ERROR_STOP=1 \
+        -c "begin;
+            insert into public.schema_migrations (filename, applied_at)
+              select '${escaped_name}', applied_at
+                from public.schema_migrations
+               where filename = '${escaped_alias_name}'
+              on conflict (filename) do nothing;
+            delete from public.schema_migrations
+             where filename = '${escaped_alias_name}';
+            commit;";
+      echo "skip $name (renamed from $alias_name)"
+      continue
+    fi
   fi
 
   echo "apply $name"

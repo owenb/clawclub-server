@@ -2993,14 +2993,14 @@ t	0	0	0	0	0	0	2026-04-21 01:00:00+01
 --
 
 COPY public.schema_migrations (filename, applied_at) FROM stdin;
-019_member_ephemeral_fk_cascade.sql	2026-04-24 00:49:00+01
-020_email_nullable.sql	2026-04-24 00:50:00+01
-021_idempotency_actor_scope.sql	2026-04-24 00:51:00+01
-022_member_registered_via_invite.sql	2026-04-25 00:00:00+01
-023_dm_inbox_acknowledged_at.sql	2026-04-26 00:00:00+01
-024_admission_invariants.sql	2026-04-27 00:00:00+01
-025_dm_inbox_drop_acknowledged.sql	2026-04-27 00:01:00+01
-026_clubs_directory_listed.sql	2026-04-27 00:02:00+01
+001_member_ephemeral_fk_cascade.sql	2026-04-24 00:49:00+01
+002_email_nullable.sql	2026-04-24 00:50:00+01
+003_idempotency_actor_scope.sql	2026-04-24 00:51:00+01
+004_member_registered_via_invite.sql	2026-04-25 00:00:00+01
+005_dm_inbox_acknowledged_at.sql	2026-04-26 00:00:00+01
+006_admission_invariants.sql	2026-04-27 00:00:00+01
+007_dm_inbox_drop_acknowledged.sql	2026-04-27 00:01:00+01
+008_clubs_directory_listed.sql	2026-04-27 00:02:00+01
 \.
 
 
