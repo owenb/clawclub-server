@@ -3,6 +3,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import type { z } from 'zod';
 import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 import { normalizeErrorCode } from './llm-errors.ts';
+import { extractMentionCandidates } from './mentions.ts';
 import { parseProfileLink } from './schemas/fields.ts';
 import { outboundLlmSignal } from './workers/environment.ts';
 
@@ -370,8 +371,23 @@ If any explicitly requested piece of information is missing, list what is missin
 const ILLEGAL_RE = /^illegal\s*[:;\-\u2013\u2014]\s*(.+)$/is;
 const FAIL_RE = /^fail\s*[:;\-\u2013\u2014]\s*(.+)$/is;
 
+export function renderGateText(value: string): string {
+  const mentions = extractMentionCandidates(value);
+  if (mentions.length === 0) return value;
+
+  let rendered = '';
+  let cursor = 0;
+  for (const mention of mentions) {
+    rendered += value.slice(cursor, mention.start);
+    rendered += mention.authoredLabel;
+    cursor = mention.end;
+  }
+  rendered += value.slice(cursor);
+  return rendered;
+}
+
 function renderField(label: string, value: string | null): string {
-  return `${label}: ${value ?? '(none)'}`;
+  return `${label}: ${value === null ? '(none)' : renderGateText(value)}`;
 }
 
 function renderLinks(links: ProfileLink[]): string[] {
@@ -380,7 +396,7 @@ function renderLinks(links: ProfileLink[]): string[] {
   }
   return [
     'links:',
-    ...links.map((link) => `  - label: ${link.label ?? '(none)'}\n    url: ${link.url}`),
+    ...links.map((link) => `  - label: ${link.label === null ? '(none)' : renderGateText(link.label)}\n    url: ${renderGateText(link.url)}`),
   ];
 }
 
@@ -419,12 +435,12 @@ export function renderArtifact(artifact: GatedArtifact): string {
     case 'vouch':
       return [
         'kind: vouch',
-        `reason: ${artifact.reason}`,
+        `reason: ${renderGateText(artifact.reason)}`,
       ].join('\n');
     case 'invitation':
       return [
         'kind: invitation',
-        `reason: ${artifact.reason}`,
+        `reason: ${renderGateText(artifact.reason)}`,
       ].join('\n');
     case 'club':
       return [

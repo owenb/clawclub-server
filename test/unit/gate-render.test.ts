@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderArtifact } from '../../src/gate.ts';
+import { renderArtifact, renderGateText } from '../../src/gate.ts';
+
+const ALICE_ID = 'a7k9m2p4q8r3';
+const BOB_ID = 'b8m2n4p6q9r5';
 
 describe('renderArtifact', () => {
   it('renders content artifacts as labeled blocks', () => {
@@ -20,6 +23,33 @@ describe('renderArtifact', () => {
         'summary: (none)',
         'body: Three days a week, remote-friendly.',
       ].join('\n'),
+    );
+  });
+
+  it('renders canonical mention spans as plain labels for the gate', () => {
+    assert.equal(
+      renderArtifact({
+        kind: 'content',
+        contentKind: 'post',
+        isReply: false,
+        title: `Welcome [Alice Smith|${ALICE_ID}]`,
+        summary: 'Coordinate with [unrelated] before posting.',
+        body: `Thanks [Bob Builder|${BOB_ID}], welcome to the club.`,
+      }),
+      [
+        'kind: content',
+        'contentKind: post',
+        'title: Welcome Alice Smith',
+        'summary: Coordinate with [unrelated] before posting.',
+        'body: Thanks Bob Builder, welcome to the club.',
+      ].join('\n'),
+    );
+  });
+
+  it('leaves malformed mention-like text unchanged in gate rendering', () => {
+    assert.equal(
+      renderGateText(`Bad [Name|, [|${ALICE_ID}], [Name|x], and good [Alice|${ALICE_ID}].`),
+      `Bad [Name|, [|${ALICE_ID}], [Name|x], and good Alice.`,
     );
   });
 
