@@ -1032,7 +1032,7 @@ export type Repository = {
     notificationIds: string[];
   }): Promise<Array<{
     notificationId: string;
-    outcome: 'acknowledged' | 'already_acknowledged' | 'not_found' | 'wrong_producer';
+    outcome: 'acknowledged' | 'already_acknowledged' | 'not_found';
     acknowledgedAt: string | null;
   }>>;
 

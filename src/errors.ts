@@ -59,6 +59,7 @@ export const ErrorCodes = {
   member_cap_reached: 'member_cap_reached',
   member_delete_blocked: 'member_delete_blocked',
   member_not_found: 'member_not_found',
+  method_not_allowed: 'method_not_allowed',
   message_already_removed: 'message_already_removed',
   message_not_found: 'message_not_found',
   membership_exists: 'membership_exists',
@@ -90,7 +91,7 @@ export const ErrorCodes = {
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
 
-export const ERROR_STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 408 | 409 | 413 | 422 | 429 | 500 | 501 | 503> = {
+export const ERROR_STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 405 | 408 | 409 | 413 | 422 | 429 | 500 | 501 | 503> = {
   account_not_active: 403,
   application_blocked: 403,
   application_already_decided: 409,
@@ -151,6 +152,7 @@ export const ERROR_STATUS: Record<ErrorCode, 400 | 401 | 403 | 404 | 408 | 409 |
   member_cap_reached: 409,
   member_delete_blocked: 409,
   member_not_found: 404,
+  method_not_allowed: 405,
   message_already_removed: 409,
   message_not_found: 404,
   membership_exists: 409,

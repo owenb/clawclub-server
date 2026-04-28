@@ -264,6 +264,20 @@ function getSupersededStreamMessage(): string {
   return `This /stream was closed because a newer connection from the same member reached the ${cap}-concurrent-stream cap for this account. The newest connection always wins - close unused /stream connections to keep older ones alive.`;
 }
 
+function allowedMethodsForPath(pathname: string): string[] | null {
+  const normalizedPath = pathname.toLowerCase().replace(/\/+/g, '/');
+  const skillCanonicalPath = normalizedPath.replace(/\/+$/, '');
+  if (pathname === '/') return ['GET', 'OPTIONS'];
+  if (pathname === '/api') return ['POST', 'OPTIONS'];
+  if (pathname === '/api/schema') return ['GET', 'OPTIONS'];
+  if (pathname === '/stream') return ['GET', 'OPTIONS'];
+  if (pathname === '/directory') return ['GET', 'OPTIONS'];
+  if (pathname === '/internal/notifications/deliver') return ['POST', 'OPTIONS'];
+  if (pathname === '/internal/notifications/acknowledge') return ['POST', 'OPTIONS'];
+  if (skillCanonicalPath === '/skill' || skillCanonicalPath === '/skill.md') return ['GET', 'OPTIONS'];
+  return null;
+}
+
 function writeJson(
   request: http.IncomingMessage,
   response: http.ServerResponse,
@@ -1071,6 +1085,20 @@ export function createServer(options: {
     }
 
     if (request.method !== 'POST' || url.pathname !== '/api') {
+      const allowedMethods = allowedMethodsForPath(url.pathname);
+      if (allowedMethods && !allowedMethods.includes(request.method ?? '')) {
+        writeJson(request, response, 405, {
+          ok: false,
+          error: {
+            code: 'method_not_allowed',
+            message: 'Method not allowed for this route.',
+          },
+        }, {
+          extraHeaders: { allow: allowedMethods.join(', ') },
+        });
+        return;
+      }
+
       writeJson(request, response, 404, {
         ok: false,
         error: {

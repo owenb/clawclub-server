@@ -69,6 +69,12 @@ async function readActiveApplicantBlock(
   return result.rows[0] ?? null;
 }
 
+function formatApplicationBlockExpiresAt(expiresAt: string): string {
+  const parsed = new Date(expiresAt);
+  if (Number.isNaN(parsed.getTime())) return expiresAt;
+  return parsed.toISOString();
+}
+
 export async function assertCanApplyToClub(
   client: DbClient,
   input: { clubId: string; memberId: string },
@@ -83,7 +89,7 @@ export async function assertCanApplyToClub(
   const block = await readActiveApplicantBlock(client, input);
   if (!block) return;
 
-  const duration = block.expires_at ? ` until ${block.expires_at}` : '';
+  const duration = block.expires_at ? ` until ${formatApplicationBlockExpiresAt(block.expires_at)}` : '';
   throw new AppError('application_blocked', `You cannot apply to this club after being ${block.block_kind}${duration}.`);
 }
 

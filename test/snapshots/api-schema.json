@@ -21000,6 +21000,10 @@
         "status": 404
       },
       {
+        "code": "method_not_allowed",
+        "status": 405
+      },
+      {
         "code": "unsupported_media_type",
         "status": 415
       },
@@ -21047,5 +21051,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "80f2b2bfc692fd30"
+  "schemaHash": "e219e7f07e5ca454"
 }

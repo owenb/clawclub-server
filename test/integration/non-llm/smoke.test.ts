@@ -351,6 +351,7 @@ describe('smoke', () => {
     assert.ok(codes.includes('forbidden_scope'));
     assert.ok(codes.includes('unknown_action'));
     assert.ok(codes.includes('not_found'), 'should include not_found for unsupported routes');
+    assert.ok(codes.includes('method_not_allowed'), 'should include method_not_allowed for recognized routes with the wrong method');
     assert.ok(codes.includes('payload_timeout'), 'should include payload_timeout for slow or incomplete request bodies');
     assert.equal(codes.includes('too_many_streams'), false, 'should not advertise retired stream-cap errors');
     assert.equal(codes.includes('not_available'), false, 'should not advertise retired capability checks');

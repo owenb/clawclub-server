@@ -477,6 +477,37 @@ test('createServer exposes contract headers on core routes and JSON responses', 
   }
 });
 
+test('createServer returns 405 for recognized routes with the wrong method', async () => {
+  const requestFetch = globalThis.fetch;
+  const { server, shutdown } = createServer({
+    repository: makeRepository(),
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+
+    const api = await requestFetch(`http://127.0.0.1:${port}/api`, { method: 'PATCH' });
+    const apiBody = await api.json();
+    assert.equal(api.status, 405);
+    assert.equal(api.headers.get('allow'), 'POST, OPTIONS');
+    assert.equal(apiBody.error.code, 'method_not_allowed');
+
+    const schema = await requestFetch(`http://127.0.0.1:${port}/api/schema`, { method: 'POST' });
+    const schemaBody = await schema.json();
+    assert.equal(schema.status, 405);
+    assert.equal(schema.headers.get('allow'), 'GET, OPTIONS');
+    assert.equal(schemaBody.error.code, 'method_not_allowed');
+
+    const unknown = await requestFetch(`http://127.0.0.1:${port}/unknown`, { method: 'PATCH' });
+    const unknownBody = await unknown.json();
+    assert.equal(unknown.status, 404);
+    assert.equal(unknownBody.error.code, 'not_found');
+  } finally {
+    await shutdown();
+  }
+});
+
 test('createServer rate-limits bootstrap schema and skill routes with JSON errors', async () => {
   const requestFetch = globalThis.fetch;
   const { server, shutdown } = createServer({

@@ -162,7 +162,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
   });
   assert.deepEqual(
     (wrongProducer.body.data.results as Array<Record<string, unknown>>).map((row) => row.outcome),
-    ['wrong_producer', 'not_found'],
+    ['not_found', 'not_found'],
   );
 
   const rotated = await h.apiOk(admin.token, 'superadmin.notificationProducers.rotateSecret', {

@@ -68,8 +68,7 @@ export type AcknowledgedNotificationRecord = {
 export type ProducerAcknowledgeOutcome =
   | 'acknowledged'
   | 'already_acknowledged'
-  | 'not_found'
-  | 'wrong_producer';
+  | 'not_found';
 
 export type ProducerAcknowledgeResult = {
   notificationId: string;
@@ -1208,7 +1207,7 @@ export async function acknowledgeProducerNotificationsById(
     if (existing.producer_id !== input.producerId) {
       return {
         notificationId,
-        outcome: 'wrong_producer',
+        outcome: 'not_found',
         acknowledgedAt: null,
       } satisfies ProducerAcknowledgeResult;
     }

@@ -272,6 +272,7 @@ function buildTransport(unauthenticatedActions: string[]): unknown {
       { code: 'invalid_json', status: 400 },
       { code: 'unknown_action', status: 400 },
       { code: 'not_found', status: 404 },
+      { code: 'method_not_allowed', status: 405 },
       { code: 'unsupported_media_type', status: 415 },
       { code: 'invalid_auth_header', status: 401 },
       { code: 'unauthenticated', status: 401 },
