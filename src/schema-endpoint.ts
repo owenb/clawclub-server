@@ -245,13 +245,13 @@ function buildTransport(unauthenticatedActions: string[]): unknown {
     },
     stream: {
       queryParameters: {
-        after: { type: 'string', description: 'Optional activity cursor seed. Omit to rely on Last-Event-ID or the current tip.' },
+        after: { type: 'string', description: 'Optional stream cursor seed. Use "latest" for the current activity/DM tips, or the composite streamCursor from a ready/activity/message event.' },
         limit: { type: 'integer', default: 20, maximum: 20, description: 'Max activity or DM items per poll cycle inside the stream (1-20).' },
       },
       resumeHeaders: {
-        'Last-Event-ID': 'Used for activity resumption only. Ready frames attach the current activity seq when one exists, and activity frames always attach seq as the SSE id; message and notifications_dirty frames do not advance any cursor. After reconnect, use updates.list to catch up on missed DM and notification state.',
+        'Last-Event-ID': 'Composite stream cursor (`a<activitySeq>:i<inboxSeq>`) emitted as the SSE id on ready, activity, and message events. Legacy activity-only ids are accepted for one deploy cycle.',
       },
-      sseIdBehavior: 'Ready frames attach the current activity seq when one exists, and activity frames always attach seq as the SSE id. Only activity is replayable; message and notifications_dirty frames are stateless on reconnect, so clients must use updates.list to catch up on missed DM and notification state.',
+      sseIdBehavior: 'Ready, activity, and message frames carry a composite SSE id that resumes both activity and DM inbox slices. notifications_dirty is invalidation-only and does not advance the cursor.',
       heartbeat: { comment: 'keepalive', intervalMs: 15_000 },
       maxConcurrentStreamsPerMember: getConfig().policy.transport.maxStreamsPerMember,
       events: {

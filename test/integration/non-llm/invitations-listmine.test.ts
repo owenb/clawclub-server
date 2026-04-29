@@ -609,4 +609,33 @@ describe('invitations.issue existing-member delivery', () => {
     assert.equal(withdrawnInvitation.status, 'used');
     assert.equal(withdrawnInvitation.quotaState, 'free');
   });
+
+  it('hides real foreign invitations behind invitation_not_found on revoke', async () => {
+    const owner = await h.seedOwner('invite-revoke-enum-club', 'Invite Revoke Enum Club');
+    const sponsor = await h.seedCompedMember(owner.club.id, 'Invite Revoke Enum Sponsor');
+    const outsider = await h.seedMember('Invite Revoke Enum Outsider');
+
+    const issued = await h.apiOk(sponsor.token, 'invitations.issue', {
+      clubId: owner.club.id,
+      candidateName: 'Invite Revoke Enum Candidate',
+      candidateEmail: 'invite-revoke-enum-candidate@example.com',
+      reason: 'This invitation should not be enumerable by an unrelated member.',
+      clientKey: 'invite-revoke-enum-issue-1',
+    });
+    const invitation = (issued.data as Record<string, unknown>).invitation as Record<string, unknown>;
+
+    const realForeign = await h.apiErr(outsider.token, 'invitations.revoke', {
+      invitationId: invitation.invitationId,
+      clientKey: 'invite-revoke-enum-real-1',
+    });
+    const fake = await h.apiErr(outsider.token, 'invitations.revoke', {
+      invitationId: '222222222222',
+      clientKey: 'invite-revoke-enum-fake-1',
+    });
+
+    assert.equal(realForeign.status, 404);
+    assert.equal(realForeign.code, 'invitation_not_found');
+    assert.equal(fake.status, 404);
+    assert.equal(fake.code, 'invitation_not_found');
+  });
 });

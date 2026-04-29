@@ -871,7 +871,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       });
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
     async acknowledgeDirectMessageInbox() {
       return { threadId: 'thread-1', acknowledgedCount: 0 };
@@ -1320,8 +1320,8 @@ test('superadmin.memberships.create direct-adds an active member', async () => {
       capturedInput = input as Record<string, unknown>;
       return makeMembershipAdmin({
         membershipId: 'membership-10',
-        clubId: 'club-2',
-        member: { memberId: 'member-9', publicName: 'Member Nine' },
+        clubId: '23456789abcd',
+        member: { memberId: '3456789abcde', publicName: 'Member Nine' },
         sponsor: null,
         version: { ...makeMembershipAdmin().version, status: 'active', reason: 'Direct add' },
       });
@@ -1334,8 +1334,8 @@ test('superadmin.memberships.create direct-adds an active member', async () => {
     action: 'superadmin.memberships.create',
     payload: {
       clientKey: 'membership-create-unit',
-      clubId: 'club-2',
-      memberId: 'member-9',
+      clubId: '23456789abcd',
+      memberId: '3456789abcde',
       initialStatus: 'active',
       reason: 'Direct add',
     },
@@ -1344,18 +1344,18 @@ test('superadmin.memberships.create direct-adds an active member', async () => {
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     clientKey: 'membership-create-unit',
-    idempotencyActorContext: 'superadmin:member-1:memberships.create:club-2:member-9',
+    idempotencyActorContext: 'superadmin:member-1:memberships.create:23456789abcd:3456789abcde',
     idempotencyRequestValue: {
       clientKey: 'membership-create-unit',
-      clubId: 'club-2',
-      memberId: 'member-9',
+      clubId: '23456789abcd',
+      memberId: '3456789abcde',
       role: 'member',
       initialStatus: 'active',
       reason: 'Direct add',
       sponsorId: null,
     },
-    clubId: 'club-2',
-    memberId: 'member-9',
+    clubId: '23456789abcd',
+    memberId: '3456789abcde',
     sponsorId: null,
     role: 'member',
     initialStatus: 'active',

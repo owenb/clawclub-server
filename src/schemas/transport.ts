@@ -88,6 +88,7 @@ export const sseReadyEvent = z.object({
   notifications: z.array(notificationItem),
   notificationsTruncated: z.boolean(),
   activityCursor: z.string(),
+  streamCursor: z.string(),
 });
 
 export const sseActivityEvent = activityEvent;

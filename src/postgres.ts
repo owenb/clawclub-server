@@ -55,7 +55,6 @@ import {
 } from './mentions.ts';
 import {
   encodeCursor as paginationEncodeCursor,
-  decodeCursor as paginationDecodeCursor,
 } from './schemas/fields.ts';
 import {
   isStoredTerminalError,
@@ -285,75 +284,32 @@ async function listMaterializedNotifications(pool: Pool, input: {
 
 async function listInboxFramesSince(pool: Pool, input: {
   actorMemberId: string;
-  after: string | null;
+  afterSeq: number | null;
   limit: number;
-}): Promise<{ frames: MessageFramePayload[]; nextCursor: string | null }> {
+}): Promise<{ frames: Array<{ inboxSeq: number; payload: MessageFramePayload }>; highWaterMark: number }> {
   const limit = Math.max(1, input.limit);
-  const afterCursor = input.after
-    ? (() => {
-      const [createdAt, inboxEntryId] = paginationDecodeCursor(input.after!, 2);
-      return { createdAt, inboxEntryId };
-    })()
-    : null;
-
-  if (afterCursor === null) {
-    const seed = await pool.query<{
-      inbox_entry_id: string;
-      created_at: string;
-    }>(
-      `select ie.id as inbox_entry_id,
-              ie.created_at::text as created_at
+  if (input.afterSeq === null) {
+    const seed = await pool.query<{ high_water_mark: string | null }>(
+      `select max(ie.inbox_seq)::text as high_water_mark
        from dm_inbox_entries ie
-       where ie.recipient_member_id = $1
-         and ie.acknowledged_at is null
-         and not exists (
-           select 1 from dm_message_removals rmv where rmv.message_id = ie.message_id
-         )
-         and exists (
-           select 1
-           from dm_thread_participants self
-           join dm_messages m on m.id = ie.message_id
-           where self.thread_id = ie.thread_id
-             and self.member_id = $1
-             and self.left_at is null
-             and m.created_at >= self.joined_at
-         )
-         and exists (
-           select 1
-           from dm_thread_participants other
-           where other.thread_id = ie.thread_id
-             and other.member_id <> $1
-             and other.left_at is null
-         )
-       order by ie.created_at desc, ie.id desc
-       limit 1`,
+       where ie.recipient_member_id = $1`,
       [input.actorMemberId],
     );
-
-    const head = seed.rows[0];
-    if (!head) {
-      const nowResult = await pool.query<{ created_at: string }>(
-        `select clock_timestamp()::text as created_at`,
-      );
-      return {
-        frames: [],
-        nextCursor: paginationEncodeCursor([nowResult.rows[0]?.created_at ?? new Date().toISOString(), '']),
-      };
-    }
-
     return {
       frames: [],
-      nextCursor: paginationEncodeCursor([head.created_at, head.inbox_entry_id]),
+      highWaterMark: Number(seed.rows[0]?.high_water_mark ?? 0),
     };
   }
 
   const inboxRows = await pool.query<{
     inbox_entry_id: string;
+    inbox_seq: string;
     thread_id: string;
     message_id: string;
     created_at: string;
   }>(
     `select ie.id as inbox_entry_id,
+            ie.inbox_seq::text as inbox_seq,
             ie.thread_id,
             ie.message_id,
             ie.created_at::text as created_at
@@ -379,17 +335,14 @@ async function listInboxFramesSince(pool: Pool, input: {
            and other.member_id <> $1
            and other.left_at is null
        )
-       and (
-         ie.created_at > $2::timestamptz
-         or (ie.created_at = $2::timestamptz and ie.id > $3)
-       )
-     order by ie.created_at asc, ie.id asc
-     limit $4`,
-    [input.actorMemberId, afterCursor.createdAt, afterCursor.inboxEntryId, limit],
+       and ie.inbox_seq > $2
+     order by ie.inbox_seq asc
+     limit $3`,
+    [input.actorMemberId, input.afterSeq, limit],
   );
 
   if (inboxRows.rows.length === 0) {
-    return { frames: [], nextCursor: input.after };
+    return { frames: [], highWaterMark: input.afterSeq };
   }
 
   const messageIds = inboxRows.rows.map((row) => row.message_id);
@@ -558,16 +511,19 @@ async function listInboxFramesSince(pool: Pool, input: {
     };
 
     return [{
-      thread,
-      messages: [message],
-      included: mergeIncludedBundles(participantBundle, mentionIncluded),
+      inboxSeq: Number(row.inbox_seq),
+      payload: {
+        thread,
+        messages: [message],
+        included: mergeIncludedBundles(participantBundle, mentionIncluded),
+      },
     }];
   });
 
   const lastInboxRow = inboxRows.rows[inboxRows.rows.length - 1];
   return {
     frames,
-    nextCursor: lastInboxRow ? paginationEncodeCursor([lastInboxRow.created_at, lastInboxRow.inbox_entry_id]) : input.after,
+    highWaterMark: lastInboxRow ? Number(lastInboxRow.inbox_seq) : input.afterSeq,
   };
 }
 
@@ -1349,7 +1305,7 @@ export function createRepository(
     async listInboxSince(input) {
       return listInboxFramesSince(pool, {
         actorMemberId: input.actorMemberId,
-        after: input.after,
+        afterSeq: input.afterSeq,
         limit: input.limit,
       });
     },

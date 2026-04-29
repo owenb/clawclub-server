@@ -301,6 +301,7 @@ Uniqueness and quota:
 Redemption paths:
 - external: `invitations.redeem(code, draft, clientKey)` consumes the code, creates a `club_applications` row with `submission_path = 'invitation'` and `invite_mode = 'external'`, and notifies the sponsor with `invitation.redeemed`
 - internal: the invited member calls `clubs.apply(clubSlug, invitationId?, draft, clientKey)`. If exactly one open internal invite exists for `(member, club)`, the server auto-binds it. If multiple exist and no `invitationId` is given, the server returns `invitation_ambiguous` with candidate `invitationId`s in `error.details`. Acceptance creates `submission_path = 'invitation'` and `invite_mode = 'internal'`
+- code redemption failures are intentionally opaque. Malformed, unknown, expired, revoked, consumed, or unusable-for-this-caller codes return `invalid_invitation_code`; the redeem path does not distinguish "real but unavailable" from "not real" on the wire
 - both paths notify the sponsor with `invitation.redeemed`. `invitation.resolved` fires on the terminal application state (`active`, `declined`, `banned`, `removed`, `withdrawn`)
 - redemption is authenticated: `invitations.redeem` requires an existing bearer. Candidates without an account register via `accounts.register` first
 
@@ -390,7 +391,7 @@ The polling surface is unified:
 
 The realtime side channel is `GET /stream`:
 - activity frames, DM frames, and notification-invalidation frames travel over one SSE channel
-- `Last-Event-ID` resumes activity only; on reconnect, clients re-read through `updates.list` to catch up on DM and notification state
+- `Last-Event-ID` carries the composite stream cursor `a<activitySeq>:i<inboxSeq>`. Ready, activity, and message frames all emit that cursor as the SSE `id`, so reconnect resumes both club activity and DM inbox frames without duplicates. Legacy activity-only cursors are accepted for one deploy cycle.
 - `event: closed` is emitted immediately before an explicit eviction (for example, a newer `/stream` connection from the same member supersedes an older one). Other terminations end with plain EOF
 
 Rules:

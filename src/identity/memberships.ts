@@ -21,6 +21,7 @@ import {
   type UpdateMembershipInput,
 } from '../repository.ts';
 import {
+  matchesPgCheckConstraint,
   matchesPgConstraint,
   translate23505,
   withTransaction,
@@ -628,7 +629,7 @@ export async function createMembershipInTransaction(client: DbClient, input: Cre
               case when $4::membership_state = 'active' then now() else null end,
               $5::jsonb
        where exists (select 1 from members where id = $6::short_id and state = 'active')
-       returning id`,
+      returning id`,
       [input.clubId, input.sponsorId, input.role, input.initialStatus, JSON.stringify(input.metadata ?? {}), input.memberId],
     );
   } catch (error) {
@@ -639,6 +640,9 @@ export async function createMembershipInTransaction(client: DbClient, input: Cre
           memberId: input.memberId,
         }),
       });
+    }
+    if (matchesPgCheckConstraint(error, 'short_id_check')) {
+      throw new AppError('invalid_input', 'Resource id is not a valid ClawClub short_id.', { cause: error });
     }
     throw error;
   }
@@ -1418,6 +1422,9 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
             memberId: input.memberId,
           }),
         });
+      }
+      if (matchesPgCheckConstraint(error, 'short_id_check')) {
+        throw new AppError('invalid_input', 'Resource id is not a valid ClawClub short_id.', { cause: error });
       }
       throw error;
     }

@@ -422,11 +422,6 @@ const invitationsRedeem: ActionDefinition = {
       recovery: 'Do not retry automatically. Wait until the temporary block expires, or ask a club admin if a persistent block should be reconsidered.',
     },
     {
-      code: 'member_already_active',
-      meaning: 'The member already has an active membership in this club.',
-      recovery: 'Stop the redemption flow and use the existing membership instead.',
-    },
-    {
       code: 'membership_exists',
       meaning: 'The member already has a non-terminal membership record in this club.',
       recovery: 'Stop the redemption flow and inspect the existing membership instead of creating a new application.',

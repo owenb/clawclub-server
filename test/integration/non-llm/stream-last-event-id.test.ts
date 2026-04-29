@@ -33,7 +33,7 @@ describe('/stream Last-Event-ID replay', () => {
       await firstStream.waitForEvents(1);
       assert.equal(firstStream.events[0]?.event, 'ready');
       lastEventId = firstStream.events[0]?.id ?? '';
-      assert.match(lastEventId, /^\d+$/);
+      assert.match(lastEventId, /^a\d+:i\d+$/);
     } finally {
       firstStream.close();
     }
@@ -46,12 +46,63 @@ describe('/stream Last-Event-ID replay', () => {
       const [activity, ready] = replayStream.events;
 
       assert.equal(activity?.event, 'activity');
-      assert.equal(activity?.id, String(missedSeq));
+      assert.equal(activity?.id, `a${missedSeq}:i0`);
       assert.equal((activity?.data as Record<string, unknown>).topic, 'test.stream_replay_missed');
       assert.equal(ready?.event, 'ready');
-      assert.equal(ready?.id, String(missedSeq));
+      assert.equal(ready?.id, `a${missedSeq}:i0`);
     } finally {
       replayStream.close();
     }
+  });
+
+  it('emits missed DM seed frames before ready on reconnect', async () => {
+    const owner = await h.seedOwner('stream-dm-replay', 'Stream DM Replay');
+    const member = await h.seedCompedMember(owner.club.id, 'Stream DM Member');
+
+    const firstStream = h.connectStream(member.token, { after: 'latest' });
+    let lastEventId: string;
+    try {
+      await firstStream.waitForEvents(1);
+      assert.equal(firstStream.events[0]?.event, 'ready');
+      lastEventId = firstStream.events[0]?.id ?? '';
+      assert.match(lastEventId, /^a\d+:i\d+$/);
+    } finally {
+      firstStream.close();
+    }
+
+    const sent = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: member.id,
+      messageText: 'Missed while disconnected',
+    });
+    const sentMessage = (sent.data as Record<string, unknown>).message as Record<string, unknown>;
+
+    const replayStream = h.connectStream(member.token, { lastEventId });
+    try {
+      await replayStream.waitForEvents(2);
+      const [message, ready] = replayStream.events;
+
+      assert.equal(message?.event, 'message');
+      assert.match(message?.id ?? '', /^a\d+:i\d+$/);
+      const messages = message?.data.messages as Array<Record<string, unknown>>;
+      assert.equal(messages[0]?.messageId, sentMessage.messageId);
+      assert.equal(messages[0]?.messageText, 'Missed while disconnected');
+      assert.equal(ready?.event, 'ready');
+      assert.equal(ready?.id, message?.id);
+    } finally {
+      replayStream.close();
+    }
+  });
+
+  it('rejects malformed Last-Event-ID values', async () => {
+    const owner = await h.seedOwner('stream-bad-last-event-id', 'Stream Bad Last Event ID');
+    const response = await fetch(`http://127.0.0.1:${h.port}/stream`, {
+      headers: {
+        authorization: `Bearer ${owner.token}`,
+        'last-event-id': 'not-a-stream-cursor',
+      },
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json() as { error?: { code?: string } };
+    assert.equal(body.error?.code, 'invalid_input');
   });
 });

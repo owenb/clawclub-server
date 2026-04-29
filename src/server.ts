@@ -11,7 +11,7 @@ import { DEFAULT_SERVER_LIMITS } from './config/defaults.ts';
 import { AppError, type Repository } from './repository.ts';
 import { buildDispatcher, type LlmGateFn } from './dispatch.ts';
 import { getConfig, hasInitializedConfig, initializeConfigFromFile } from './config/index.ts';
-import { boundedArray, decodeCursor, encodeCursor } from './schemas/fields.ts';
+import { boundedArray } from './schemas/fields.ts';
 import { getAction, generateRequestTemplate, GENERIC_REQUEST_TEMPLATE } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { NOTIFICATIONS_PAGE_SIZE } from './notifications-core.ts';
@@ -30,6 +30,12 @@ import {
   writeCachedText,
   writeJson as writeBoundaryJson,
 } from './http-boundary.ts';
+import {
+  composeStreamResumeId,
+  encodeLegacyActivityCursor,
+  parseRequiredStreamResumeId,
+  parseStreamResumeId,
+} from './sse-resume.ts';
 
 export { DEFAULT_SERVER_LIMITS } from './config/defaults.ts';
 
@@ -218,37 +224,11 @@ function normalizeStreamAfter(value: string | null): string | 'latest' | null {
     return 'latest';
   }
 
-  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(trimmed) && !/^[0-9]+$/.test(trimmed)) {
+  if (!/^[A-Za-z0-9_:-]+={0,2}$/.test(trimmed) && !/^[0-9]+$/.test(trimmed)) {
     throw new AppError('invalid_input', 'after must be a valid cursor string or "latest"');
   }
 
   return trimmed;
-}
-
-function encodeActivityCursor(seq: number | null): string | null {
-  if (seq === null) {
-    return null;
-  }
-  return encodeCursor([String(seq)]);
-}
-
-function parseActivityResumeSeq(value: string | null): number | null {
-  if (value === null || value === 'latest') {
-    return null;
-  }
-
-  if (/^[0-9]+$/.test(value)) {
-    const seq = Number.parseInt(value, 10);
-    return Number.isSafeInteger(seq) && seq >= 0 ? seq : null;
-  }
-
-  try {
-    const [rawSeq] = decodeCursor(value, 1);
-    const seq = Number.parseInt(rawSeq, 10);
-    return Number.isSafeInteger(seq) && seq >= 0 ? seq : null;
-  } catch {
-    return null;
-  }
 }
 
 function getDefaultResponseHeaders(): Record<string, string> {
@@ -756,10 +736,14 @@ export function createServer(options: {
         );
         const lastEventId = request.headers['last-event-id'];
         const explicitAfter = normalizeStreamAfter(url.searchParams.get('after'));
-        const afterSeed = explicitAfter ?? (typeof lastEventId === 'string' ? lastEventId.trim() : null);
-        const initialAfterSeq = parseActivityResumeSeq(afterSeed);
-        if (explicitAfter !== null && explicitAfter !== 'latest' && initialAfterSeq === null) {
-          throw new AppError('invalid_input', 'after must be a valid activity cursor or "latest"');
+        const headerAfter = typeof lastEventId === 'string' ? lastEventId.trim() : null;
+        const resume = explicitAfter !== null
+          ? parseRequiredStreamResumeId(explicitAfter, 'after must be a valid stream cursor or "latest"')
+          : headerAfter
+            ? parseRequiredStreamResumeId(headerAfter, 'Last-Event-ID must be a valid stream cursor')
+            : parseStreamResumeId(null);
+        if (!resume) {
+          throw new AppError('invalid_input', 'Stream cursor is invalid');
         }
 
         const activitySeed = await repository.listClubActivity({
@@ -768,15 +752,15 @@ export function createServer(options: {
           adminClubIds,
           ownerClubIds,
           limit,
-          afterSeq: initialAfterSeq,
+          afterSeq: resume.activitySeq,
         });
         let activitySeq = activitySeed.highWaterMark;
         const inboxSeed = await repository.listInboxSince({
           actorMemberId: memberId,
-          after: null,
+          afterSeq: resume.inboxSeq,
           limit,
         });
-        let inboxCursor = inboxSeed.nextCursor;
+        let inboxSeq = inboxSeed.highWaterMark;
 
         const notificationSeed = await repository.listNotifications({
           actorMemberId: memberId,
@@ -800,7 +784,13 @@ export function createServer(options: {
         response.socket?.setTimeout(0);
 
         for (const item of activitySeed.items) {
-          writeSseEvent(response, 'activity', item, item.seq);
+          activitySeq = item.seq;
+          writeSseEvent(response, 'activity', item, composeStreamResumeId(activitySeq, inboxSeq));
+        }
+
+        for (const frame of inboxSeed.frames) {
+          inboxSeq = frame.inboxSeq;
+          writeSseEvent(response, 'message', frame.payload, composeStreamResumeId(activitySeq, inboxSeq));
         }
 
         writeSseEvent(response, 'ready', {
@@ -811,8 +801,9 @@ export function createServer(options: {
           requestScope: auth.requestScope,
           notifications: notificationSeed.items,
           notificationsTruncated: notificationSeed.nextCursor !== null,
-          activityCursor: encodeActivityCursor(activitySeq),
-        }, activitySeq);
+          activityCursor: encodeLegacyActivityCursor(activitySeq),
+          streamCursor: composeStreamResumeId(activitySeq, inboxSeq),
+        }, composeStreamResumeId(activitySeq, inboxSeq));
 
         const handle: StreamHandle = {
           id: randomUUID(),
@@ -905,21 +896,23 @@ export function createServer(options: {
 
           if (activity.items.length > 0) {
             for (const item of activity.items) {
-              writeSseEvent(response, 'activity', item, item.seq);
+              activitySeq = item.seq;
+              writeSseEvent(response, 'activity', item, composeStreamResumeId(activitySeq, inboxSeq));
             }
             deliveredFrames = true;
           }
 
           const messageFrames = await repository.listInboxSince({
             actorMemberId: auth.actor.member.id,
-            after: inboxCursor,
+            afterSeq: inboxSeq,
             limit,
           });
-          inboxCursor = messageFrames.nextCursor;
+          inboxSeq = messageFrames.highWaterMark;
 
           if (messageFrames.frames.length > 0) {
             for (const frame of messageFrames.frames) {
-              writeSseEvent(response, 'message', frame);
+              inboxSeq = frame.inboxSeq;
+              writeSseEvent(response, 'message', frame.payload, composeStreamResumeId(activitySeq, inboxSeq));
             }
             deliveredFrames = true;
           }

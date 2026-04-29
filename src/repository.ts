@@ -570,9 +570,14 @@ export type MessageFramePayload = {
   included: IncludedBundle;
 };
 
+export type MessageFrame = {
+  inboxSeq: number;
+  payload: MessageFramePayload;
+};
+
 export type MessageFramePage = {
-  frames: MessageFramePayload[];
-  nextCursor: string | null;
+  frames: MessageFrame[];
+  highWaterMark: number;
 };
 
 export type SendDirectMessageInput = {
@@ -880,7 +885,7 @@ export type Repository = {
   }): Promise<WithIncluded<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[]; hasMore: boolean; nextCursor: string | null }> | null>;
   listInboxSince(input: {
     actorMemberId: string;
-    after: string | null;
+    afterSeq: number | null;
     limit: number;
   }): Promise<MessageFramePage>;
   acknowledgeDirectMessageInbox(input: {

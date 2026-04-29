@@ -12071,11 +12071,6 @@
           "recovery": "Do not retry automatically. Wait until the temporary block expires, or ask a club admin if a persistent block should be reconsidered."
         },
         {
-          "code": "member_already_active",
-          "meaning": "The member already has an active membership in this club.",
-          "recovery": "Stop the redemption flow and use the existing membership instead."
-        },
-        {
           "code": "membership_exists",
           "meaning": "The member already has a non-terminal membership record in this club.",
           "recovery": "Stop the redemption flow and inspect the existing membership instead of creating a new application."
@@ -17535,7 +17530,7 @@
           },
           "clubId": {
             "description": "Club to add the member to. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
-            "maxLength": 100000,
+            "pattern": "^[23456789abcdefghjkmnpqrstuvwxyz]{12}$",
             "type": "string"
           },
           "initialStatus": {
@@ -17547,8 +17542,8 @@
             "type": "string"
           },
           "memberId": {
-            "description": "Member to add",
-            "maxLength": 100000,
+            "description": "Member to add.",
+            "pattern": "^[23456789abcdefghjkmnpqrstuvwxyz]{12}$",
             "type": "string"
           },
           "reason": {
@@ -17567,9 +17562,9 @@
             "type": "string"
           },
           "sponsorId": {
-            "description": "Optional sponsoring member",
-            "maxLength": 2000,
+            "description": "Optional sponsoring member.",
             "nullable": true,
+            "pattern": "^[23456789abcdefghjkmnpqrstuvwxyz]{12}$",
             "type": "string"
           }
         },
@@ -20947,6 +20942,9 @@
                 "activeClubIds"
               ],
               "type": "object"
+            },
+            "streamCursor": {
+              "type": "string"
             }
           },
           "required": [
@@ -20954,7 +20952,8 @@
             "requestScope",
             "notifications",
             "notificationsTruncated",
-            "activityCursor"
+            "activityCursor",
+            "streamCursor"
           ],
           "type": "object"
         }
@@ -20967,7 +20966,7 @@
       "note": "Browser EventSource cannot set Authorization headers; use fetch with a streaming reader.",
       "queryParameters": {
         "after": {
-          "description": "Optional activity cursor seed. Omit to rely on Last-Event-ID or the current tip.",
+          "description": "Optional stream cursor seed. Use \"latest\" for the current activity/DM tips, or the composite streamCursor from a ready/activity/message event.",
           "type": "string"
         },
         "limit": {
@@ -20978,9 +20977,9 @@
         }
       },
       "resumeHeaders": {
-        "Last-Event-ID": "Used for activity resumption only. Ready frames attach the current activity seq when one exists, and activity frames always attach seq as the SSE id; message and notifications_dirty frames do not advance any cursor. After reconnect, use updates.list to catch up on missed DM and notification state."
+        "Last-Event-ID": "Composite stream cursor (`a<activitySeq>:i<inboxSeq>`) emitted as the SSE id on ready, activity, and message events. Legacy activity-only ids are accepted for one deploy cycle."
       },
-      "sseIdBehavior": "Ready frames attach the current activity seq when one exists, and activity frames always attach seq as the SSE id. Only activity is replayable; message and notifications_dirty frames are stateless on reconnect, so clients must use updates.list to catch up on missed DM and notification state."
+      "sseIdBehavior": "Ready, activity, and message frames carry a composite SSE id that resumes both activity and DM inbox slices. notifications_dirty is invalidation-only and does not advance the cursor."
     },
     "transportErrorCodes": [
       {
@@ -21051,5 +21050,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "e219e7f07e5ca454"
+  "schemaHash": "8c08c88eaaa58053"
 }

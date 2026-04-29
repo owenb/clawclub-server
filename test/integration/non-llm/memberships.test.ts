@@ -104,6 +104,21 @@ describe('superadmin.memberships.create', () => {
     assert.equal(err.code, 'unknown_action');
   });
 
+  it('rejects malformed memberId at the schema edge instead of leaking a Postgres domain error', async () => {
+    const admin = await h.seedSuperadmin('Direct Add Malformed Admin');
+    const owner = await h.seedOwner('direct-malformed-club', 'Direct Malformed Club');
+
+    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
+      clubId: owner.club.id,
+      memberId: 'abc123abc123',
+      initialStatus: 'active',
+    });
+
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+  });
+
   it('rejects blocked members until the historical membership is reactivated', async () => {
     const admin = await h.seedSuperadmin('Direct Add Blocked Admin');
     const owner = await h.seedOwner('direct-add-blocked-club', 'Direct Add Blocked Club');

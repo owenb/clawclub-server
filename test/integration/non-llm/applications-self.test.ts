@@ -885,6 +885,33 @@ describe('invitations.redeem', () => {
     assert.ok(row?.used_at, 'redeeming should still consume the invitation');
   });
 
+  it('collapses already-active membership failures into invalid_invitation_code', async () => {
+    const owner = await h.seedOwner('applications-redeem-active-club', 'Applications Redeem Active Club');
+    const member = await h.seedCompedMember(owner.club.id, 'Redeem Already Active', 'redeem-active@applications.test');
+
+    const issue = await h.apiOk(owner.token, 'invitations.issue', {
+      clubId: owner.club.id,
+      candidateName: 'External Redeem Active',
+      candidateEmail: 'external-redeem-active@applications.test',
+      reason: 'A real invitation code that should remain opaque to existing members.',
+      clientKey: 'redeem-active-issue-1',
+    });
+    const invitation = (issue.data as Record<string, unknown>).invitation as Record<string, unknown>;
+
+    const err = await h.apiErr(member.token, 'invitations.redeem', {
+      code: String(invitation.code),
+      draft: {
+        name: member.publicName,
+        socials: '@redeemactive',
+        application: 'I already belong to this club, so this code should not reveal itself.',
+      },
+      clientKey: 'redeem-active-1',
+    });
+
+    assert.equal(err.status, 422);
+    assert.equal(err.code, 'invalid_invitation_code');
+  });
+
   it('returns application_in_flight with canonical details after the invitation has already been redeemed once', async () => {
     const owner = await h.seedOwner('applications-redeem-resume-club', 'Applications Redeem Resume Club');
     const candidate = await h.seedMember('Redeem Resume Applicant', 'redeem-resume@applications.test');

@@ -140,6 +140,21 @@ type ApplicationRow = {
 
 const INVALID_INVITATION_CODE_MESSAGE = 'Invitation code is invalid or no longer usable.';
 
+function throwInvalidInvitationCode(): never {
+  throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
+}
+
+async function collapseRedeemMembershipOracle<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'member_already_active') {
+      throwInvalidInvitationCode();
+    }
+    throw error;
+  }
+}
+
 function canonicalizeInvitationCodeForRegistrationMac(value: string): string {
   return value.trim().toUpperCase();
 }
@@ -1888,10 +1903,10 @@ export async function redeemInvitationApplication(pool: Pool, input: {
     throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
   }
   assertInvitationSponsorAvailable(preparedInvitation);
-  await runApplicationPreflight(pool, {
+  await collapseRedeemMembershipOracle(() => runApplicationPreflight(pool, {
     actorMemberId: input.actorMemberId,
     clubId: preparedInvitation.club_id,
-  });
+  }));
   if (
     preparedInvitation.revoked_at
     || preparedInvitation.expired_at
@@ -1930,10 +1945,10 @@ export async function redeemInvitationApplication(pool: Pool, input: {
         }
         assertInvitationSponsorAvailable(invitation);
 
-        await assertCanApplyToClub(client, {
+        await collapseRedeemMembershipOracle(() => assertCanApplyToClub(client, {
           clubId: invitation.club_id,
           memberId: input.actorMemberId,
-        });
+        }));
 
         const existingOpen = await getExistingOpenApplicationIfAny(client, {
           clubId: invitation.club_id,

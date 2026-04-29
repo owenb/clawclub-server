@@ -31,6 +31,14 @@ export function matchesPgConstraint(error: unknown, constraint: string): boolean
   return pgError.code === '23505' && pgError.constraint === constraint;
 }
 
+export function matchesPgCheckConstraint(error: unknown, constraint: string): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const pgError = error as { code?: unknown; constraint?: unknown };
+  return pgError.code === '23514' && pgError.constraint === constraint;
+}
+
 export function translate23505(
   error: unknown,
   constraintName: string,

@@ -1013,7 +1013,7 @@ test('createServer streams ready, activity, and keepalive frames over SSE', asyn
       };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
 
@@ -1285,7 +1285,7 @@ test('createServer does not gate recovery endpoints on ClawClub-Schema-Seen', as
       return { items: [], nextCursor: null };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
   const updatesNotifier = {
@@ -1363,7 +1363,7 @@ test('createServer evicts the oldest stream when a member opens cap+1 connection
       return { items: [], nextCursor: null };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
   const { server, shutdown } = createServer({ repository, updatesNotifier: makeBlockingUpdatesNotifier() });
@@ -1418,7 +1418,7 @@ test('createServer natural stream closure frees a slot without evicting another 
       return { items: [], nextCursor: null };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
   const { server, shutdown } = createServer({ repository, updatesNotifier: makeBlockingUpdatesNotifier() });
@@ -1475,7 +1475,7 @@ test('createServer isolates oldest-first eviction per member', async () => {
       return { items: [], nextCursor: null };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
   const { server, shutdown } = createServer({ repository, updatesNotifier: makeBlockingUpdatesNotifier() });
@@ -1552,7 +1552,7 @@ test('createServer does not track a failed stream open as an active slot', async
       return { items: [], nextCursor: null };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
   const { server, shutdown } = createServer({ repository, updatesNotifier: makeBlockingUpdatesNotifier() });
@@ -1673,7 +1673,7 @@ test('createServer emits a well-formed closed SSE frame when it evicts a healthy
       return { items: [], nextCursor: null };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
   const { server, shutdown } = createServer({ repository, updatesNotifier: makeBlockingUpdatesNotifier() });
@@ -1728,7 +1728,7 @@ test('createServer logs a stream_evicted line when it supersedes an older stream
       return { items: [], nextCursor: null };
     },
     async listInboxSince() {
-      return { frames: [], nextCursor: null };
+      return { frames: [], highWaterMark: 0 };
     },
   };
   const { server, shutdown } = createServer({ repository, updatesNotifier: makeBlockingUpdatesNotifier() });

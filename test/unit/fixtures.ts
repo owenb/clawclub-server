@@ -487,7 +487,7 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async listDirectMessageThreads() { return []; },
     async listDirectMessageInbox() { return { results: [], hasMore: false, nextCursor: null, included: { membersById: {} } }; },
     async readDirectMessageThread() { return null; },
-    async listInboxSince() { return { frames: [], nextCursor: null }; },
+    async listInboxSince() { return { frames: [], highWaterMark: 0 }; },
     async acknowledgeDirectMessageInbox() { return { threadId: 'thread-1', acknowledgedCount: 0 }; },
     ...overrides,
   };

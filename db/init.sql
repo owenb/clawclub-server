@@ -2169,6 +2169,20 @@ CREATE VIEW public.current_member_global_roles AS
 ALTER VIEW public.current_member_global_roles OWNER TO clawclub_app;
 
 --
+-- Name: dm_inbox_seq; Type: SEQUENCE; Schema: public; Owner: clawclub_app
+--
+
+CREATE SEQUENCE public.dm_inbox_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.dm_inbox_seq OWNER TO clawclub_app;
+
+--
 -- Name: dm_inbox_entries; Type: TABLE; Schema: public; Owner: clawclub_app
 --
 
@@ -2178,11 +2192,18 @@ CREATE TABLE public.dm_inbox_entries (
     thread_id public.short_id NOT NULL,
     message_id public.short_id NOT NULL,
     acknowledged_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    inbox_seq bigint DEFAULT nextval('public.dm_inbox_seq'::regclass) NOT NULL
 );
 
 
 ALTER TABLE public.dm_inbox_entries OWNER TO clawclub_app;
+
+--
+-- Name: dm_inbox_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: clawclub_app
+--
+
+ALTER SEQUENCE public.dm_inbox_seq OWNED BY public.dm_inbox_entries.inbox_seq;
 
 --
 -- Name: dm_message_mentions; Type: TABLE; Schema: public; Owner: clawclub_app
@@ -2796,7 +2817,7 @@ COPY public.contents (id, club_id, kind, author_member_id, open_loop, client_key
 -- Data for Name: dm_inbox_entries; Type: TABLE DATA; Schema: public; Owner: clawclub_app
 --
 
-COPY public.dm_inbox_entries (id, recipient_member_id, thread_id, message_id, acknowledged_at, created_at) FROM stdin;
+COPY public.dm_inbox_entries (id, recipient_member_id, thread_id, message_id, acknowledged_at, created_at, inbox_seq) FROM stdin;
 \.
 
 
@@ -3001,6 +3022,7 @@ COPY public.schema_migrations (filename, applied_at) FROM stdin;
 006_admission_invariants.sql	2026-04-27 00:00:00+01
 007_dm_inbox_drop_acknowledged.sql	2026-04-27 00:01:00+01
 008_clubs_directory_listed.sql	2026-04-27 00:02:00+01
+009_dm_inbox_seq.sql	2026-04-29 00:00:00+01
 \.
 
 
@@ -3017,6 +3039,13 @@ COPY public.worker_state (worker_id, state_key, state_value, updated_at) FROM st
 --
 
 SELECT pg_catalog.setval('public.club_activity_seq_seq', 1, false);
+
+
+--
+-- Name: dm_inbox_seq; Type: SEQUENCE SET; Schema: public; Owner: clawclub_app
+--
+
+SELECT pg_catalog.setval('public.dm_inbox_seq', 1, false);
 
 
 --
@@ -3902,6 +3931,13 @@ CREATE INDEX contents_thread_created_idx ON public.contents USING btree (thread_
 --
 
 CREATE INDEX dm_inbox_entries_recipient_created_idx ON public.dm_inbox_entries USING btree (recipient_member_id, created_at DESC);
+
+
+--
+-- Name: dm_inbox_entries_recipient_seq_idx; Type: INDEX; Schema: public; Owner: clawclub_app
+--
+
+CREATE INDEX dm_inbox_entries_recipient_seq_idx ON public.dm_inbox_entries USING btree (recipient_member_id, inbox_seq);
 
 
 --

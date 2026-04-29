@@ -762,9 +762,7 @@ export async function revokeInvitation(pool: Pool, input: {
     const actorIsClubAdmin = (input.adminClubIds ?? []).includes(invitation.club_id);
     const allowed = actorIsSponsor || actorIsClubAdmin;
     if (!allowed) {
-      throw new AppError('forbidden_scope',
-        'You may only revoke your own invitations or invitations in clubs you administer',
-      );
+      return null;
     }
 
     if (invitation.used_at) {

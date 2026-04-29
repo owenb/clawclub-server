@@ -55,6 +55,7 @@ const OPAQUE_STRING_MAX_CHARS = 100_000;
 export const CLAWCLUB_TIMESTAMP_META = 'timestamp';
 const INT32_MAX = 2_147_483_647;
 const ZERO_WIDTH_CHARS = /[\u200B-\u200D\u2060\uFEFF]/g;
+export const SHORT_ID_REGEX = /^[23456789abcdefghjkmnpqrstuvwxyz]{12}$/;
 
 export const timestampString = z.string().meta({ clawclubType: CLAWCLUB_TIMESTAMP_META });
 
@@ -317,6 +318,16 @@ export const wireRequiredString = z.string()
 
 /** Parse: required non-empty string, trimmed */
 export const parseRequiredString = safeString.pipe(z.string().trim().min(1).max(OPAQUE_STRING_MAX_CHARS));
+
+/** Wire: public short_id resource identifier. */
+export const wireShortId = z.string()
+  .regex(SHORT_ID_REGEX, 'Must be a valid ClawClub short_id')
+  .describe('ClawClub short_id: 12 lowercase base32 characters, excluding ambiguous characters.');
+
+/** Parse: trims and validates the public shape of the Postgres short_id domain. */
+export const parseShortId = safeString.pipe(
+  z.string().trim().regex(SHORT_ID_REGEX, 'Must be a valid ClawClub short_id'),
+);
 
 /** Wire: required human-entered string with a 2 000 character cap. */
 export const wireHumanRequiredString = z.string().max(SMALL_TEXT_MAX_CHARS)

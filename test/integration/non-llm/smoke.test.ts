@@ -192,7 +192,6 @@ describe('smoke', () => {
     assert.ok(invitationsRedeemErrors.has('application_limit_reached'), 'invitations.redeem should document application_limit_reached');
     assert.ok(invitationsRedeemErrors.has('application_in_flight'), 'invitations.redeem should document application_in_flight');
     assert.ok(invitationsRedeemErrors.has('application_blocked'), 'invitations.redeem should document application_blocked');
-    assert.ok(invitationsRedeemErrors.has('member_already_active'), 'invitations.redeem should document member_already_active');
     assert.ok(invitationsRedeemErrors.has('membership_exists'), 'invitations.redeem should document membership_exists');
     assert.ok(invitationsRedeemErrors.has('application_not_mutable'), 'invitations.redeem should document application_not_mutable');
     assert.ok(invitationsRedeemErrors.has('client_key_conflict'), 'invitations.redeem should document client_key_conflict');
