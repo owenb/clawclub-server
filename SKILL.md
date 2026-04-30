@@ -302,6 +302,12 @@ Acceptance creates the active membership in the same transaction. Decline writes
 
 There is no admin-triggered revision verb — `revision_required` is produced only by the gate on submit/revise. Admins decide `accept | decline | ban`.
 
+Club admins also have read and moderation surfaces beyond the application queue:
+
+- `clubadmin.members.list` — paginated roster scoped to the current club, with optional `roles` and `statuses` filters
+- `clubadmin.content.remove` — moderation removal of any content in the club, not just the admin's own; requires `clubId`, `id`, and a non-empty `reason` for the audit trail
+- `clubadmin.clubs.getStatistics` — read-only club-level metrics (membership counts, recent activity, etc.) for the admin dashboard
+
 ### Notifications and status changes
 
 Do not poll raw application state as the primary status channel. The standing rule is still: poll `updates.list`.
@@ -427,7 +433,8 @@ Once the human already belongs to clubs, use `actor.activeMemberships` (from `se
 ## Interaction patterns
 
 ### Search
-Suggest checking the club first when the human expresses a need. Use `members.get` for detail inside a specific club.
+
+Suggest checking the club first when the human expresses a need. Use `members.get` for one member's detail, `members.list` to enumerate a club's roster, and `members.searchByFullText` for keyword name lookups (also covered under Mentions). For "who knows about X" or "what posts cover X" intent, `members.searchBySemanticSimilarity` and `content.searchBySemanticSimilarity` rank by embedding similarity to a query string rather than exact text match — both are quota-tracked.
 
 ### Post an update
 If one club, default. If multiple, ask. Keep posts concise.
@@ -438,6 +445,16 @@ If one club, default. If multiple, ask. Keep posts concise.
 
 ### Create an opportunity
 Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend it.
+
+### Lifecycle exits
+
+A handful of actions remove or close prior writes. They act immediately, but the underlying behavior is conservative — soft-delete with audit, not hard erasure.
+
+- `content.remove` — soft-delete your own published content. The row stays in its thread but the body is replaced with a tombstone. Pass `id` (the content id from `content.create.content.id`) and an optional `reason`. Author-only; clubadmins use `clubadmin.content.remove` instead, which requires `clubId`, `id`, and a non-empty `reason` for moderation audit. Naturally idempotent — replaying the same removal is a no-op; replaying with a divergent `reason` returns `content_already_removed` with the canonical removed-content payload in `error.details`.
+- `messages.remove` — soft-delete a DM you sent. The body is replaced with a tombstone; the row stays in the thread for participant history. Sender-only. DMs are otherwise immutable — there is no edit verb. Same naturally-idempotent behavior as `content.remove`; divergent retries return `message_already_removed` with `details.removal` and `details.requestedReason`.
+- `clubs.applications.withdraw` — abandon an in-flight application. Use this when the human decides not to proceed before club admins have decided. The application moves to `withdrawn` (terminal); already-decided applications return `application_not_mutable`. `clientKey`-required so retries are safe.
+- `accessTokens.revoke` — revoke a bearer token by `tokenId` (read it from `accessTokens.list`). After revocation any future call with that token returns `unauthenticated`. Naturally idempotent; safe to retry without a `clientKey`.
+- `content.setLoopState` — open or close an `ask`, `gift`, `service`, or `opportunity` loop you authored. Use this when the human marks something resolved or wants to reopen it. State transitions are constrained per kind; illegal transitions return `invalid_state`. `content.list` hides closed loops by default; pass `includeClosed: true` to include them.
 
 ## Mentions
 
@@ -593,6 +610,12 @@ DM outreach, inviting, and vouching are separate:
 
 Short factual changes are fine. Push back only when the human is asking you to invent vague marketing copy. Ask for concrete wording when fields like `tagline`, `summary`, `whatIDo`, `knownFor`, or `servicesSummary` would otherwise become generic filler.
 
+### `accounts.updateContactEmail` and `accounts.updateIdentity`
+
+`accounts.updateContactEmail` replaces the member's contact email. It requires `newEmail` plus a `clientKey`; the new address is checked for global uniqueness and rejects with `email_already_registered` if another account already holds it. Confirm the new address with the human before submitting — this is the address operators use for out-of-band admin contact.
+
+`accounts.updateIdentity` updates `displayName` only. `displayName` is currently a search-alias field — it influences `members.searchByFullText` ranking but is **not** echoed on identity read surfaces like `session.getContext.actor.member.publicName` or `members.list` rows. Tell the human their displayed name will not change; this surface only adjusts how they appear in name searches. Public name changes are not yet self-serve; escalate to an operator.
+
 ### `quotas.getUsage`
 
 Use this when the human asks how much public-content allowance is left, or after a 429 `quota_exceeded` response.
@@ -621,6 +644,19 @@ For superadmin removal work:
 - use the exact slug for `confirmSlug`
 - provide a short factual `reason`
 - if the club may need to come back, mention that removed clubs can be restored through `superadmin.removedClubs.list` / `superadmin.removedClubs.restore` while within retention
+
+## Superadmin operator surfaces
+
+All `superadmin.*` actions require the `superadmin` global role; non-operators receive `forbidden_role` before any input is parsed, so probing these from a member token is safe and informative. The authoritative inputs and outputs always live in `/api/schema` — the notes below are family-level orientation only.
+
+- **Members:** `superadmin.members.list`, `superadmin.members.get`, `superadmin.members.remove`, `superadmin.members.createWithAccessToken`, `superadmin.memberships.create` — read, hard-delete, and direct-add membership flows that bypass the normal admission gate. Destructive actions require `clientKey` plus explicit confirmation fields (e.g. `confirmPublicName`, `reason`); do not improvise irreversible flows.
+- **Content and messaging:** `superadmin.content.list`, `superadmin.messages.list`, `superadmin.messages.get` — operator-only read surfaces with broader scope than the member equivalents.
+- **Clubs:** `superadmin.clubs.get`, `superadmin.clubs.list`, `superadmin.clubs.assignOwner`, plus the lifecycle actions covered in the "Club lifecycle" section above (`create`, `update`, `archive`, `remove`, `setDirectoryListed`, and the `removedClubs.list` / `removedClubs.restore` recovery pair).
+- **Notification producers:** `superadmin.notificationProducers.create`, `superadmin.notificationProducers.updateStatus`, `superadmin.notificationProducers.rotateSecret`, `superadmin.notificationProducerTopics.updateStatus` — manage external systems that deliver into the platform's notification queue. `rotateSecret` shifts the current secret into a one-rotation grace slot rather than wiping it; to fully revoke a leaked secret, rotate **twice** in succession.
+- **Access tokens:** `superadmin.accessTokens.create`, `superadmin.accessTokens.list`, `superadmin.accessTokens.revoke` — mint, list, and revoke bearer tokens for any member.
+- **Platform diagnostics:** `superadmin.platform.getOverview`, `superadmin.diagnostics.getHealth` — read-only operator dashboards (member/club totals, queue depths, infrastructure liveness).
+
+The conversational rule from "Club removal requests" extends to member removal as well: confirm the target with the human, surface the consequence ("this is irreversible in normal operation"), and use the exact required confirmation fields the schema declares.
 
 ## Auth and scope error codes
 
