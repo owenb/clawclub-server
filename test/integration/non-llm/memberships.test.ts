@@ -104,19 +104,29 @@ describe('superadmin.memberships.create', () => {
     assert.equal(err.code, 'unknown_action');
   });
 
-  it('rejects malformed memberId at the schema edge instead of leaking a Postgres domain error', async () => {
+  it('rejects malformed resource ids at the schema edge instead of leaking a Postgres domain error', async () => {
     const admin = await h.seedSuperadmin('Direct Add Malformed Admin');
     const owner = await h.seedOwner('direct-malformed-club', 'Direct Malformed Club');
+    const member = await h.seedMember('Direct Malformed Member');
 
-    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
-      clientKey: randomUUID(),
-      clubId: owner.club.id,
-      memberId: 'abc123abc123',
-      initialStatus: 'active',
-    });
+    const cases = [
+      { clubId: 'abc123abc123', memberId: member.id, sponsorId: undefined },
+      { clubId: owner.club.id, memberId: 'abc123abc123', sponsorId: undefined },
+      { clubId: owner.club.id, memberId: member.id, sponsorId: 'abc123abc123' },
+    ];
 
-    assert.equal(err.status, 400);
-    assert.equal(err.code, 'invalid_input');
+    for (const input of cases) {
+      const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+        clientKey: randomUUID(),
+        clubId: input.clubId,
+        memberId: input.memberId,
+        sponsorId: input.sponsorId,
+        initialStatus: 'active',
+      });
+
+      assert.equal(err.status, 400);
+      assert.equal(err.code, 'invalid_input');
+    }
   });
 
   it('rejects blocked members until the historical membership is reactivated', async () => {

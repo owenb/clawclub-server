@@ -318,8 +318,8 @@ const invitationsRevoke: ActionDefinition = {
   businessErrors: [
     {
       code: 'forbidden_scope',
-      meaning: 'Only the sponsor or a clubadmin in the invitation’s club may revoke it.',
-      recovery: 'Use your own invitation, or choose a club where you are a clubadmin.',
+      meaning: 'Only the sponsor may withdraw support from an invitation once it has been consumed into a live application.',
+      recovery: 'Ask the original sponsor to withdraw support, or decide the application through the application review flow.',
     },
     {
       code: 'invalid_state',

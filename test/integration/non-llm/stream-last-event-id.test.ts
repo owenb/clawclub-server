@@ -93,6 +93,56 @@ describe('/stream Last-Event-ID replay', () => {
     }
   });
 
+  it('does not let seed activity ids skip unseen DM frames', async () => {
+    const owner = await h.seedOwner('stream-seed-race', 'Stream Seed Race');
+    const member = await h.seedCompedMember(owner.club.id, 'Stream Seed Race Member');
+
+    const firstStream = h.connectStream(member.token, { after: 'latest' });
+    let baselineId: string;
+    try {
+      await firstStream.waitForEvents(1);
+      assert.equal(firstStream.events[0]?.event, 'ready');
+      baselineId = firstStream.events[0]?.id ?? '';
+      assert.match(baselineId, /^a\d+:i\d+$/);
+    } finally {
+      firstStream.close();
+    }
+
+    const missedSeq = await insertActivity(owner.club.id, owner.id, 'test.stream_seed_race_activity');
+    const sent = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: member.id,
+      messageText: 'Seed race message',
+    });
+    const sentMessage = (sent.data as Record<string, unknown>).message as Record<string, unknown>;
+
+    const seedStream = h.connectStream(member.token, { lastEventId: baselineId });
+    let activityId: string;
+    try {
+      await seedStream.waitForEvents(1);
+      const [activity] = seedStream.events;
+      assert.equal(activity?.event, 'activity');
+      activityId = activity?.id ?? '';
+      assert.match(activityId, new RegExp(`^a${missedSeq}:i\\d+$`));
+    } finally {
+      seedStream.close();
+    }
+
+    const resumed = h.connectStream(member.token, { lastEventId: activityId });
+    try {
+      await resumed.waitForEvents(2);
+      const [message, ready] = resumed.events;
+
+      assert.equal(message?.event, 'message');
+      const messages = message?.data.messages as Array<Record<string, unknown>>;
+      assert.equal(messages[0]?.messageId, sentMessage.messageId);
+      assert.equal(messages[0]?.messageText, 'Seed race message');
+      assert.equal(ready?.event, 'ready');
+      assert.equal(ready?.id, message?.id);
+    } finally {
+      resumed.close();
+    }
+  });
+
   it('rejects malformed Last-Event-ID values', async () => {
     const owner = await h.seedOwner('stream-bad-last-event-id', 'Stream Bad Last Event ID');
     const response = await fetch(`http://127.0.0.1:${h.port}/stream`, {

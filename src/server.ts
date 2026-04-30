@@ -760,6 +760,7 @@ export function createServer(options: {
           afterSeq: resume.inboxSeq,
           limit,
         });
+        const seedActivityInboxSeq = resume.inboxSeq ?? 0;
         let inboxSeq = inboxSeed.highWaterMark;
 
         const notificationSeed = await repository.listNotifications({
@@ -785,7 +786,7 @@ export function createServer(options: {
 
         for (const item of activitySeed.items) {
           activitySeq = item.seq;
-          writeSseEvent(response, 'activity', item, composeStreamResumeId(activitySeq, inboxSeq));
+          writeSseEvent(response, 'activity', item, composeStreamResumeId(activitySeq, seedActivityInboxSeq));
         }
 
         for (const frame of inboxSeed.frames) {
