@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict LMbNRhsTO7aZ6DUkSfA7AnUm6QpxisxIcFMDMZr1tNmZuIfgaUDQwOj3YeZrahe
+\restrict u1RYWY7ideKHchUIFFcsc67r2clFA5fW7imcfhloheoVQK09rIQbCGfSpmSq5aB
 
 -- Dumped from database version 18.3 (Homebrew)
 -- Dumped by pg_dump version 18.3 (Homebrew)
@@ -1753,8 +1753,8 @@ CREATE TABLE public.club_applicant_blocks (
     block_kind text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by_member_id public.short_id,
-    expires_at timestamp with time zone,
     reason text,
+    expires_at timestamp with time zone,
     source text,
     CONSTRAINT club_applicant_blocks_block_kind_check CHECK ((block_kind = ANY (ARRAY['declined'::text, 'banned'::text, 'removed'::text])))
 );
@@ -2169,6 +2169,23 @@ CREATE VIEW public.current_member_global_roles AS
 ALTER VIEW public.current_member_global_roles OWNER TO clawclub_app;
 
 --
+-- Name: dm_inbox_entries; Type: TABLE; Schema: public; Owner: clawclub_app
+--
+
+CREATE TABLE public.dm_inbox_entries (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    recipient_member_id public.short_id NOT NULL,
+    thread_id public.short_id NOT NULL,
+    message_id public.short_id NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    acknowledged_at timestamp with time zone,
+    inbox_seq bigint NOT NULL
+);
+
+
+ALTER TABLE public.dm_inbox_entries OWNER TO clawclub_app;
+
+--
 -- Name: dm_inbox_seq; Type: SEQUENCE; Schema: public; Owner: clawclub_app
 --
 
@@ -2183,27 +2200,11 @@ CREATE SEQUENCE public.dm_inbox_seq
 ALTER SEQUENCE public.dm_inbox_seq OWNER TO clawclub_app;
 
 --
--- Name: dm_inbox_entries; Type: TABLE; Schema: public; Owner: clawclub_app
---
-
-CREATE TABLE public.dm_inbox_entries (
-    id public.short_id DEFAULT public.new_id() NOT NULL,
-    recipient_member_id public.short_id NOT NULL,
-    thread_id public.short_id NOT NULL,
-    message_id public.short_id NOT NULL,
-    acknowledged_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    inbox_seq bigint DEFAULT nextval('public.dm_inbox_seq'::regclass) NOT NULL
-);
-
-
-ALTER TABLE public.dm_inbox_entries OWNER TO clawclub_app;
-
---
 -- Name: dm_inbox_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: clawclub_app
 --
 
 ALTER SEQUENCE public.dm_inbox_seq OWNED BY public.dm_inbox_entries.inbox_seq;
+
 
 --
 -- Name: dm_message_mentions; Type: TABLE; Schema: public; Owner: clawclub_app
@@ -2605,11 +2606,18 @@ CREATE TABLE public.worker_state (
 ALTER TABLE public.worker_state OWNER TO clawclub_app;
 
 --
+-- Name: dm_inbox_entries inbox_seq; Type: DEFAULT; Schema: public; Owner: clawclub_app
+--
+
+ALTER TABLE ONLY public.dm_inbox_entries ALTER COLUMN inbox_seq SET DEFAULT nextval('public.dm_inbox_seq'::regclass);
+
+
+--
 -- Data for Name: meta; Type: TABLE DATA; Schema: producer_contract; Owner: clawclub_app
 --
 
 COPY producer_contract.meta (singleton, version, hash, updated_at) FROM stdin;
-t	1	049_producer_contract_initial	2026-04-23 12:21:40.80753+01
+t	1	049_producer_contract_initial	2026-01-01 00:00:00+00
 \.
 
 
@@ -2681,7 +2689,7 @@ COPY public.club_activity_cursors (member_id, club_id, last_seq, updated_at) FRO
 -- Data for Name: club_applicant_blocks; Type: TABLE DATA; Schema: public; Owner: clawclub_app
 --
 
-COPY public.club_applicant_blocks (id, club_id, member_id, block_kind, created_at, created_by_member_id, expires_at, reason, source) FROM stdin;
+COPY public.club_applicant_blocks (id, club_id, member_id, block_kind, created_at, created_by_member_id, reason, expires_at, source) FROM stdin;
 \.
 
 
@@ -2817,7 +2825,7 @@ COPY public.contents (id, club_id, kind, author_member_id, open_loop, client_key
 -- Data for Name: dm_inbox_entries; Type: TABLE DATA; Schema: public; Owner: clawclub_app
 --
 
-COPY public.dm_inbox_entries (id, recipient_member_id, thread_id, message_id, acknowledged_at, created_at, inbox_seq) FROM stdin;
+COPY public.dm_inbox_entries (id, recipient_member_id, thread_id, message_id, created_at, acknowledged_at, inbox_seq) FROM stdin;
 \.
 
 
@@ -2962,24 +2970,24 @@ COPY public.notification_delivery_counters (producer_id, recipient_member_id, de
 --
 
 COPY public.notification_producer_topics (producer_id, topic, delivery_class, status, created_at) FROM stdin;
-core	application.accepted	transactional	active	2026-04-23 12:21:40.508832+01
-core	application.awaiting_review	transactional	active	2026-04-23 12:21:40.508832+01
-core	application.banned	transactional	active	2026-04-23 12:21:40.508832+01
-core	application.declined	transactional	active	2026-04-23 12:21:40.508832+01
-core	application.revision_required	transactional	active	2026-04-23 12:21:40.508832+01
-core	application.withdrawn	transactional	active	2026-04-23 12:21:40.508832+01
-core	clubadmin.application_pending	transactional	active	2026-04-23 12:21:40.508832+01
-core	event.removed	informational	active	2026-04-23 12:21:40.508832+01
-core	event.rsvp.updated	informational	active	2026-04-23 12:21:40.508832+01
-core	event.updated	informational	active	2026-04-23 12:21:40.508832+01
-core	invitation.received	transactional	active	2026-04-23 12:21:40.508832+01
-core	invitation.redeemed	informational	active	2026-04-23 12:21:40.508832+01
-core	invitation.resolved	transactional	active	2026-04-23 12:21:40.508832+01
-core	membership.activated	transactional	active	2026-04-23 12:21:40.508832+01
-core	membership.banned	transactional	active	2026-04-23 12:21:40.508832+01
-core	membership.removed	transactional	active	2026-04-23 12:21:40.508832+01
-core	vouch.received	informational	active	2026-04-23 12:21:40.508832+01
-core	account.registered	transactional	active	2026-04-23 12:21:40.630191+01
+core	application.accepted	transactional	active	2026-01-01 00:00:00+00
+core	application.awaiting_review	transactional	active	2026-01-01 00:00:00+00
+core	application.banned	transactional	active	2026-01-01 00:00:00+00
+core	application.declined	transactional	active	2026-01-01 00:00:00+00
+core	application.revision_required	transactional	active	2026-01-01 00:00:00+00
+core	application.withdrawn	transactional	active	2026-01-01 00:00:00+00
+core	clubadmin.application_pending	transactional	active	2026-01-01 00:00:00+00
+core	event.removed	informational	active	2026-01-01 00:00:00+00
+core	event.rsvp.updated	informational	active	2026-01-01 00:00:00+00
+core	event.updated	informational	active	2026-01-01 00:00:00+00
+core	invitation.received	transactional	active	2026-01-01 00:00:00+00
+core	invitation.redeemed	informational	active	2026-01-01 00:00:00+00
+core	invitation.resolved	transactional	active	2026-01-01 00:00:00+00
+core	membership.activated	transactional	active	2026-01-01 00:00:00+00
+core	membership.banned	transactional	active	2026-01-01 00:00:00+00
+core	membership.removed	transactional	active	2026-01-01 00:00:00+00
+core	vouch.received	informational	active	2026-01-01 00:00:00+00
+core	account.registered	transactional	active	2026-01-01 00:00:00+00
 \.
 
 
@@ -2988,7 +2996,7 @@ core	account.registered	transactional	active	2026-04-23 12:21:40.630191+01
 --
 
 COPY public.notification_producers (producer_id, secret_hash_current, secret_hash_previous, namespace_prefix, burst_limit, hourly_limit, daily_limit, status, created_at, rotated_at) FROM stdin;
-core	internal-only	\N		\N	\N	\N	active	2026-04-23 12:21:40.508832+01	\N
+core	internal-only	\N		\N	\N	\N	active	2026-01-01 00:00:00+00	\N
 \.
 
 
@@ -3005,7 +3013,7 @@ COPY public.notification_refs (notification_id, ref_role, ref_kind, ref_id) FROM
 --
 
 COPY public.platform_stats (singleton, total_members, active_members, active_clubs, live_contents, total_messages, pending_applications, updated_at) FROM stdin;
-t	0	0	0	0	0	0	2026-04-21 01:00:00+01
+t	0	0	0	0	0	0	2026-01-01 00:00:00+00
 \.
 
 
@@ -3014,15 +3022,15 @@ t	0	0	0	0	0	0	2026-04-21 01:00:00+01
 --
 
 COPY public.schema_migrations (filename, applied_at) FROM stdin;
-001_member_ephemeral_fk_cascade.sql	2026-04-24 00:49:00+01
-002_email_nullable.sql	2026-04-24 00:50:00+01
-003_idempotency_actor_scope.sql	2026-04-24 00:51:00+01
-004_member_registered_via_invite.sql	2026-04-25 00:00:00+01
-005_dm_inbox_acknowledged_at.sql	2026-04-26 00:00:00+01
-006_admission_invariants.sql	2026-04-27 00:00:00+01
-007_dm_inbox_drop_acknowledged.sql	2026-04-27 00:01:00+01
-008_clubs_directory_listed.sql	2026-04-27 00:02:00+01
-009_dm_inbox_seq.sql	2026-04-29 00:00:00+01
+001_member_ephemeral_fk_cascade.sql	2026-01-01 00:00:00+00
+002_email_nullable.sql	2026-01-01 00:00:00+00
+003_idempotency_actor_scope.sql	2026-01-01 00:00:00+00
+004_member_registered_via_invite.sql	2026-01-01 00:00:00+00
+005_dm_inbox_acknowledged_at.sql	2026-01-01 00:00:00+00
+006_admission_invariants.sql	2026-01-01 00:00:00+00
+007_dm_inbox_drop_acknowledged.sql	2026-01-01 00:00:00+00
+008_clubs_directory_listed.sql	2026-01-01 00:00:00+00
+009_dm_inbox_seq.sql	2026-01-01 00:00:00+00
 \.
 
 
@@ -3038,7 +3046,7 @@ COPY public.worker_state (worker_id, state_key, state_value, updated_at) FROM st
 -- Name: club_activity_seq_seq; Type: SEQUENCE SET; Schema: public; Owner: clawclub_app
 --
 
-SELECT pg_catalog.setval('public.club_activity_seq_seq', 1, false);
+SELECT pg_catalog.setval('public.club_activity_seq_seq', 48, true);
 
 
 --
@@ -3052,7 +3060,7 @@ SELECT pg_catalog.setval('public.dm_inbox_seq', 1, false);
 -- Name: member_notifications_seq_seq; Type: SEQUENCE SET; Schema: public; Owner: clawclub_app
 --
 
-SELECT pg_catalog.setval('public.member_notifications_seq_seq', 1, false);
+SELECT pg_catalog.setval('public.member_notifications_seq_seq', 46, true);
 
 
 --
@@ -3655,16 +3663,17 @@ CREATE INDEX club_activity_club_seq_idx ON public.club_activity USING btree (clu
 
 
 --
--- Name: club_applicant_blocks_lookup_idx; Type: INDEX; Schema: public; Owner: clawclub_app
---
-
-CREATE INDEX club_applicant_blocks_lookup_idx ON public.club_applicant_blocks USING btree (club_id, member_id);
-
---
 -- Name: club_applicant_blocks_active_lookup_idx; Type: INDEX; Schema: public; Owner: clawclub_app
 --
 
 CREATE INDEX club_applicant_blocks_active_lookup_idx ON public.club_applicant_blocks USING btree (club_id, member_id, expires_at);
+
+
+--
+-- Name: club_applicant_blocks_lookup_idx; Type: INDEX; Schema: public; Owner: clawclub_app
+--
+
+CREATE INDEX club_applicant_blocks_lookup_idx ON public.club_applicant_blocks USING btree (club_id, member_id);
 
 
 --
@@ -3815,17 +3824,17 @@ CREATE INDEX club_subscriptions_payer_status_idx ON public.club_subscriptions US
 
 
 --
--- Name: clubs_directory_listed_newest_idx; Type: INDEX; Schema: public; Owner: clawclub_app
---
-
-CREATE INDEX clubs_directory_listed_newest_idx ON public.clubs USING btree (created_at DESC, id DESC) WHERE (directory_listed = true);
-
-
---
 -- Name: club_versions_club_idx; Type: INDEX; Schema: public; Owner: clawclub_app
 --
 
 CREATE INDEX club_versions_club_idx ON public.club_versions USING btree (club_id, version_no DESC, created_at DESC);
+
+
+--
+-- Name: clubs_directory_listed_newest_idx; Type: INDEX; Schema: public; Owner: clawclub_app
+--
+
+CREATE INDEX clubs_directory_listed_newest_idx ON public.clubs USING btree (created_at DESC, id DESC) WHERE (directory_listed = true);
 
 
 --
@@ -5213,60 +5222,10 @@ ALTER TABLE ONLY public.notification_refs
 
 REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 GRANT ALL ON SCHEMA public TO PUBLIC;
-GRANT ALL ON SCHEMA public TO clawclub_app;
-
-
---
--- Name: FUNCTION find_asks_matching_vector(input_vector public.vector, offer_content_id public.short_id, input_club_id public.short_id, max_rows integer, exclude_author_id public.short_id); Type: ACL; Schema: producer_contract; Owner: clawclub_app
---
-
-REVOKE ALL ON FUNCTION producer_contract.find_asks_matching_vector(input_vector public.vector, offer_content_id public.short_id, input_club_id public.short_id, max_rows integer, exclude_author_id public.short_id) FROM PUBLIC;
-
-
---
--- Name: FUNCTION find_existing_thread_pairs(member_a_ids text[], member_b_ids text[]); Type: ACL; Schema: producer_contract; Owner: clawclub_app
---
-
-REVOKE ALL ON FUNCTION producer_contract.find_existing_thread_pairs(member_a_ids text[], member_b_ids text[]) FROM PUBLIC;
-
-
---
--- Name: FUNCTION find_members_matching_vector(input_vector public.vector, input_club_id public.short_id, exclude_member_id public.short_id, max_rows integer); Type: ACL; Schema: producer_contract; Owner: clawclub_app
---
-
-REVOKE ALL ON FUNCTION producer_contract.find_members_matching_vector(input_vector public.vector, input_club_id public.short_id, exclude_member_id public.short_id, max_rows integer) FROM PUBLIC;
-
-
---
--- Name: FUNCTION find_similar_members(input_member_id public.short_id, input_club_id public.short_id, max_rows integer); Type: ACL; Schema: producer_contract; Owner: clawclub_app
---
-
-REVOKE ALL ON FUNCTION producer_contract.find_similar_members(input_member_id public.short_id, input_club_id public.short_id, max_rows integer) FROM PUBLIC;
-
-
---
--- Name: FUNCTION load_current_content_vector(input_content_id public.short_id); Type: ACL; Schema: producer_contract; Owner: clawclub_app
---
-
-REVOKE ALL ON FUNCTION producer_contract.load_current_content_vector(input_content_id public.short_id) FROM PUBLIC;
-
-
---
--- Name: FUNCTION members_accessible_since(since_at timestamp with time zone); Type: ACL; Schema: producer_contract; Owner: clawclub_app
---
-
-REVOKE ALL ON FUNCTION producer_contract.members_accessible_since(since_at timestamp with time zone) FROM PUBLIC;
-
-
---
--- Name: FUNCTION tail_activity(after_seq bigint, max_rows integer, only_topic text); Type: ACL; Schema: producer_contract; Owner: clawclub_app
---
-
-REVOKE ALL ON FUNCTION producer_contract.tail_activity(after_seq bigint, max_rows integer, only_topic text) FROM PUBLIC;
 
 
 --
 -- PostgreSQL database dump complete
 --
 
-\unrestrict LMbNRhsTO7aZ6DUkSfA7AnUm6QpxisxIcFMDMZr1tNmZuIfgaUDQwOj3YeZrahe
+\unrestrict u1RYWY7ideKHchUIFFcsc67r2clFA5fW7imcfhloheoVQK09rIQbCGfSpmSq5aB
